@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-telegram-bot==21.8
+sqlalchemy
+pymysql
+python-dotenv
+apscheduler
+pydantic-settings
+websockets
+httpx
+cryptography
+google-generativeai
+requests
