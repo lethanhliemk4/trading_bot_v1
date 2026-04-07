@@ -1,8 +1,8 @@
-import os
 import time
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram import Update
 
+from app.config import get_settings
 from app.services.signal_service import (
     get_latest_signals,
     get_top_signals,
@@ -34,21 +34,22 @@ from app.services.paper_trade_service import (
     get_paper_equity,
     export_paper_trades_csv,
     close_paper_trade,
+    get_today_realized_pnl,
+    is_daily_loss_limit_hit,
 )
 from app.services.strategy_service import build_strategy
 from app.services.risk_service import build_risk_plan
 from app.services.market_price_service import get_symbol_price
 from app.market.scanner import scan_one
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-APP_ENV = os.getenv("APP_ENV", "dev")
-APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
+settings = get_settings()
 
-ALLOWED_IDS_RAW = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
-ALLOWED_IDS = [int(x.strip()) for x in ALLOWED_IDS_RAW.split(",") if x.strip()]
+TOKEN = settings.TELEGRAM_BOT_TOKEN
+APP_ENV = settings.APP_ENV
+APP_VERSION = settings.APP_VERSION
 
-LIVE_ALLOWED_IDS_RAW = os.getenv("LIVE_ALLOWED_USER_IDS", "")
-LIVE_ALLOWED_IDS = [int(x.strip()) for x in LIVE_ALLOWED_IDS_RAW.split(",") if x.strip()]
+ALLOWED_IDS = settings.telegram_allowed_user_id_list
+LIVE_ALLOWED_IDS = settings.live_allowed_user_id_list
 
 PENDING_CONFIRMATIONS: dict[int, dict] = {}
 PENDING_LIVE_CONFIRMATIONS: dict[int, float] = {}
@@ -238,7 +239,10 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✅ Bot status: RUNNING\n"
         f"Trade mode: {mode_state['trade_mode']}\n"
-        f"Auto trade: {'ON' if mode_state['auto_trade_enabled'] else 'OFF'}"
+        f"Auto trade: {'ON' if mode_state['auto_trade_enabled'] else 'OFF'}\n"
+        f"App env: {APP_ENV}\n"
+        f"App mode: {settings.APP_MODE}\n"
+        f"KILL_SWITCH: {settings.KILL_SWITCH}"
     )
 
 
@@ -259,7 +263,8 @@ async def version(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "📦 BOT VERSION\n\n"
         f"Version: {APP_VERSION}\n"
-        f"Environment: {APP_ENV}"
+        f"Environment: {APP_ENV}\n"
+        f"Mode: {settings.APP_MODE}"
     )
     await update.message.reply_text(msg)
 
@@ -316,8 +321,8 @@ async def mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Mode: {state['trade_mode']}\n"
             f"Auto trade: {'ON' if state['auto_trade_enabled'] else 'OFF'}"
         )
-    except ValueError:
-        await update.message.reply_text("Usage: /mode off|paper|live")
+    except ValueError as e:
+        await update.message.reply_text(f"❌ {str(e)}")
 
 
 async def confirm_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -346,7 +351,6 @@ async def confirm_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     state = set_trade_mode("LIVE")
-    print(f"[SECURITY] User {user_id} ENABLED LIVE MODE")
 
     await update.message.reply_text(
         "🚨 LIVE MODE ENABLED\n\n"
@@ -439,6 +443,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/paper_clear - Request clear all paper trades\n"
         "/paper_stats - Show paper trade stats\n"
         "/paper_equity - Show paper equity summary\n"
+        "/paper_today - Show today realized PnL\n"
         "/paper_export - Export paper trades CSV\n"
         "/paper_close_all - Close all open paper trades\n"
         "/paper_reset - Request reset paper trades and signals\n\n"
@@ -661,6 +666,29 @@ async def paper_equity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Closed Trades: {e['closed_trades']}\n"
         f"Avg PnL / Trade: {e['avg_pnl_per_trade']:+.2f} USDT"
     )
+
+    await update.message.reply_text(msg)
+
+
+async def paper_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    pnl = get_today_realized_pnl()
+    limit_hit, _ = is_daily_loss_limit_hit()
+
+    msg = (
+        "📅 PAPER TODAY\n\n"
+        f"Realized PnL: {pnl:+.2f} USDT\n"
+        f"Daily Loss Limit: -{abs(settings.DAILY_LOSS_LIMIT_USDT):.2f} USDT\n"
+    )
+
+    if limit_hit:
+        msg += "\n🛑 Circuit Breaker: TRIGGERED"
+    else:
+        msg += "\n✅ Circuit Breaker: OK"
 
     await update.message.reply_text(msg)
 
@@ -916,6 +944,10 @@ async def forcealert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result["strategy"] = build_strategy(result)
     result["risk"] = build_risk_plan(result["strategy"])
 
+    if not result["risk"]:
+        await update.message.reply_text("⚠️ Risk rejected this setup")
+        return
+
     await update.message.reply_text(format_alert_message(result))
     save_signal(result)
 
@@ -941,6 +973,10 @@ async def forcealert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "position_size": result["risk"]["position_size"],
                 "notional": result["risk"]["notional"],
             })
+
+            if not trade:
+                await update.message.reply_text("⚠️ Paper trade rejected (risk or duplicate)")
+                return
 
             await update.message.reply_text(
                 f"🧪 PAPER TRADE OPENED\n\n"
@@ -984,6 +1020,7 @@ def create_bot():
     app.add_handler(CommandHandler("paper_clear", paper_clear))
     app.add_handler(CommandHandler("paper_stats", paper_stats))
     app.add_handler(CommandHandler("paper_equity", paper_equity))
+    app.add_handler(CommandHandler("paper_today", paper_today))
     app.add_handler(CommandHandler("paper_export", paper_export))
     app.add_handler(CommandHandler("paper_close_all", paper_close_all))
     app.add_handler(CommandHandler("paper_reset", paper_reset))

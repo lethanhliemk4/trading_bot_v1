@@ -2,33 +2,80 @@ import csv
 import os
 from datetime import datetime, timezone
 
+from app.config import get_settings
 from app.db.session import SessionLocal
 from app.db.models import PaperTrade
+
+settings = get_settings()
+
+
+def _normalize_symbol(symbol: str) -> str:
+    return str(symbol).upper().strip()
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
 
 
 def create_paper_trade(data: dict):
     db = SessionLocal()
     try:
+        if settings.KILL_SWITCH:
+            return None
+
+        symbol = _normalize_symbol(data["symbol"])
+        side = str(data["side"]).upper().strip()
+
+        if side not in {"LONG", "SHORT"}:
+            return None
+
+        entry = _safe_float(data["entry_price"])
+        sl = _safe_float(data["sl"])
+        tp1 = _safe_float(data["tp1"])
+        tp2 = _safe_float(data["tp2"])
+        rr = _safe_float(data["rr"])
+        risk_amount = _safe_float(data["risk_amount"])
+        position_size = _safe_float(data["position_size"])
+        notional = _safe_float(data["notional"])
+
+        if entry <= 0 or sl <= 0 or tp1 <= 0 or tp2 <= 0:
+            return None
+
+        if risk_amount <= 0 or position_size <= 0 or notional <= 0:
+            return None
+
+        existing = (
+            db.query(PaperTrade)
+            .filter(PaperTrade.symbol == symbol, PaperTrade.status == "OPEN")
+            .first()
+        )
+        if existing:
+            return None
+
         trade = PaperTrade(
-            symbol=data["symbol"],
-            side=data["side"],
-            entry_price=data["entry_price"],
-            sl=data["sl"],
-            tp1=data["tp1"],
-            tp2=data["tp2"],
-            rr=data["rr"],
-            risk_amount=data["risk_amount"],
-            position_size=data["position_size"],
-            notional=data["notional"],
+            symbol=symbol,
+            side=side,
+            entry_price=entry,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            rr=rr,
+            risk_amount=risk_amount,
+            position_size=position_size,
+            notional=notional,
             status="OPEN",
             tp1_hit=False,
             tp1_hit_at=None,
             trailing_sl=None,
             trailing_active=False,
             tp1_closed_size=0.0,
-            remaining_size=data["position_size"],
+            remaining_size=position_size,
             realized_pnl=0.0,
         )
+
         db.add(trade)
         db.commit()
         db.refresh(trade)
@@ -93,11 +140,26 @@ def partial_close_paper_trade_tp1(trade_id: int, price: float, ratio: float = 0.
     db = SessionLocal()
     try:
         trade = db.query(PaperTrade).filter(PaperTrade.id == trade_id).first()
-        if not trade or trade.tp1_hit:
+        if not trade or trade.status != "OPEN" or trade.tp1_hit:
             return None
 
-        closed_size = trade.position_size * ratio
-        remaining = trade.position_size - closed_size
+        ratio = _safe_float(ratio)
+        price = _safe_float(price)
+
+        if ratio <= 0 or ratio >= 1:
+            return None
+
+        if price <= 0:
+            return None
+
+        if trade.remaining_size is None or trade.remaining_size <= 0:
+            return None
+
+        base_size = trade.remaining_size
+        closed_size = min(base_size * ratio, base_size)
+
+        if closed_size <= 0:
+            return None
 
         if trade.side == "LONG":
             pnl = closed_size * (price - trade.entry_price)
@@ -107,8 +169,8 @@ def partial_close_paper_trade_tp1(trade_id: int, price: float, ratio: float = 0.
         trade.tp1_hit = True
         trade.tp1_hit_at = datetime.now(timezone.utc)
         trade.tp1_closed_size = closed_size
-        trade.remaining_size = remaining
-        trade.realized_pnl += pnl
+        trade.remaining_size = max(base_size - closed_size, 0.0)
+        trade.realized_pnl = (trade.realized_pnl or 0.0) + pnl
 
         db.commit()
         db.refresh(trade)
@@ -141,7 +203,11 @@ def activate_paper_trade_trailing(trade_id: int, trailing_sl: float):
     db = SessionLocal()
     try:
         trade = db.query(PaperTrade).filter(PaperTrade.id == trade_id).first()
-        if not trade:
+        if not trade or trade.status != "OPEN":
+            return None
+
+        trailing_sl = _safe_float(trailing_sl)
+        if trailing_sl <= 0:
             return None
 
         trade.trailing_active = True
@@ -158,7 +224,11 @@ def update_paper_trade_trailing_sl(trade_id: int, trailing_sl: float):
     db = SessionLocal()
     try:
         trade = db.query(PaperTrade).filter(PaperTrade.id == trade_id).first()
-        if not trade:
+        if not trade or trade.status != "OPEN" or not trade.trailing_active:
+            return None
+
+        trailing_sl = _safe_float(trailing_sl)
+        if trailing_sl <= 0:
             return None
 
         trade.trailing_sl = trailing_sl
@@ -174,22 +244,31 @@ def close_paper_trade(trade_id: int, exit_price: float, result_percent: float, c
     db = SessionLocal()
     try:
         trade = db.query(PaperTrade).filter(PaperTrade.id == trade_id).first()
-        if not trade:
+        if not trade or trade.status != "OPEN":
             return None
 
-        size = trade.remaining_size or trade.position_size
+        exit_price = _safe_float(exit_price)
+        result_percent = _safe_float(result_percent)
+
+        if exit_price <= 0:
+            return None
+
+        size = trade.remaining_size if trade.remaining_size is not None else trade.position_size
+        if size is None or size <= 0:
+            return None
 
         if trade.side == "LONG":
             pnl = size * (exit_price - trade.entry_price)
         else:
             pnl = size * (trade.entry_price - exit_price)
 
-        trade.realized_pnl += pnl
+        trade.realized_pnl = (trade.realized_pnl or 0.0) + pnl
         trade.exit_price = exit_price
         trade.result_percent = result_percent
         trade.close_reason = close_reason
         trade.status = "CLOSED"
         trade.remaining_size = 0.0
+        trade.closed_at = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(trade)
@@ -251,7 +330,7 @@ def get_paper_trade_stats() -> dict:
 def get_paper_equity() -> dict:
     db = SessionLocal()
     try:
-        start_capital = float(os.getenv("RISK_CAPITAL_USDT", "1000"))
+        start_capital = settings.RISK_CAPITAL_USDT
 
         closed_trades = (
             db.query(PaperTrade)
@@ -276,12 +355,42 @@ def get_paper_equity() -> dict:
         db.close()
 
 
+def get_today_realized_pnl() -> float:
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+        trades = (
+            db.query(PaperTrade)
+            .filter(
+                PaperTrade.status == "CLOSED",
+                PaperTrade.closed_at.isnot(None),
+                PaperTrade.closed_at >= start,
+            )
+            .all()
+        )
+
+        return sum((t.realized_pnl or 0.0) for t in trades)
+    finally:
+        db.close()
+
+
+def is_daily_loss_limit_hit() -> tuple[bool, float]:
+    pnl = get_today_realized_pnl()
+    if pnl <= -abs(settings.DAILY_LOSS_LIMIT_USDT):
+        return True, pnl
+    return False, pnl
+
+
 def export_paper_trades_csv(output_dir: str = "/tmp") -> str | None:
     trades = get_all_paper_trades()
     if not trades:
         return None
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(output_dir, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filepath = os.path.join(output_dir, f"paper_trades_{timestamp}.csv")
 
     with open(filepath, "w", newline="", encoding="utf-8") as f:
@@ -310,6 +419,8 @@ def export_paper_trades_csv(output_dir: str = "/tmp") -> str | None:
             "remaining_size",
             "realized_pnl",
             "created_at",
+            "updated_at",
+            "closed_at",
         ])
 
         for t in trades:
@@ -337,6 +448,8 @@ def export_paper_trades_csv(output_dir: str = "/tmp") -> str | None:
                 t.remaining_size,
                 t.realized_pnl,
                 t.created_at,
+                t.updated_at,
+                t.closed_at,
             ])
 
     return filepath

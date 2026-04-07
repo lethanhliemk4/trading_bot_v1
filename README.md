@@ -1,26 +1,33 @@
-# 🚀 Binance Trading Bot (Telegram + Scanner)
+# 🚀 Binance Trading Bot
 
-Bot trading crypto tự động + điều khiển qua Telegram.
-Thiết kế để chạy **24/7 production** với Docker + MySQL.
+Bot trading crypto tự động điều khiển qua Telegram, chạy 24/7 với Docker + MySQL.
+
+Hệ thống đã hoàn thiện:
+
+* Scanner thị trường
+* Signal tracking
+* Paper trading full flow (TP1 + trailing)
+* Risk management
+* Env toggle test / prod
 
 ---
 
 # 📦 Features
 
-## 🔍 Core
+## 🔍 Market Scanner
 
-* Auto scan thị trường mỗi **30 giây**
-* Phát hiện coin dựa trên:
+* Scan thị trường theo chu kỳ
+* Lọc coin theo:
 
-  * Volume tăng mạnh
-  * Price change (5m)
-  * Volume spike
-* Gửi alert về Telegram
-* Lưu toàn bộ signal vào database
+  * price change 5m
+  * quote volume
+  * volume spike
+* Gửi alert Telegram
+* Lưu signal vào database
 
 ---
 
-## 📊 Performance Tracking
+## 📊 Signal Tracking
 
 * Theo dõi sau:
 
@@ -28,20 +35,64 @@ Thiết kế để chạy **24/7 production** với Docker + MySQL.
   * 15 phút
 * Tính:
 
-  * Win / Lose / Draw
-  * Max profit
-  * Max drawdown
+  * win / lose / draw
+  * max profit
+  * max drawdown
 
 ---
 
-## 🤖 Telegram Control
+## 🧪 Paper Trading
 
-* Scan thủ công (`/scan`)
-* Scan watchlist (`/scanall`)
-* Quản lý watchlist
-* Xem thống kê (`/stats`)
-* Healthcheck hệ thống (`/healthcheck`)
-* Version control (`/version`)
+* LONG / SHORT
+* Entry / SL / TP1 / TP2
+* TP1 partial close (50%)
+* Trailing stop
+* TP2 / SL / TSL close
+* Multi trade
+* Duplicate guard
+
+---
+
+## 🛡 Risk Management
+
+* Risk theo % vốn
+* Position size
+* Max open trades
+* Max notional
+* Daily loss breaker
+* KILL_SWITCH
+
+---
+
+## 🤖 AI Filter
+
+* `APP_MODE=test` → always pass
+* `APP_MODE=prod` → dùng Gemini thật
+
+---
+
+## ⚙️ Env Mode
+
+### TEST MODE
+
+```env
+APP_MODE=test
+```
+
+* Spam signal nhiều
+* Cooldown ngắn
+* AI always pass
+* Dùng để test TP1 / trailing
+
+### PROD MODE
+
+```env
+APP_MODE=prod
+```
+
+* Signal ít hơn
+* AI thật
+* Stable hơn
 
 ---
 
@@ -50,185 +101,10 @@ Thiết kế để chạy **24/7 production** với Docker + MySQL.
 * Python 3.13
 * FastAPI
 * python-telegram-bot
-* MySQL (Docker)
+* MySQL
 * SQLAlchemy
-* httpx
-* AsyncIO
-
----
-
-# ⚙️ Setup
-
-## 1. Clone project
-
-```bash
-git clone <your-repo>
-cd binance-bot
-```
-
----
-
-## 2. Tạo `.env`
-
-```env
-# Telegram
-TELEGRAM_BOT_TOKEN=your_token
-TELEGRAM_ALLOWED_USER_IDS=your_telegram_id
-
-# App
-APP_ENV=dev
-APP_VERSION=1.0.0
-
-# Database
-DB_HOST=mysql
-DB_PORT=3306
-DB_NAME=binance_bot
-DB_USER=botuser
-DB_PASSWORD=botpass
-```
-
----
-
-## 3. Run bằng Docker
-
-```bash
-docker compose up -d --build
-```
-
----
-
-## 4. Kiểm tra container
-
-```bash
-docker ps
-```
-
----
-
-# 🗄 Database
-
-## Reset DB (nếu lỗi)
-
-```sql
-DROP TABLE signals;
-DROP TABLE watchlist;
-```
-
-Sau đó:
-
-```bash
-docker compose down
-docker compose up -d --build
-```
-
----
-
-# 🤖 Telegram Commands
-
----
-
-## 🔹 System
-
-```text
-/start        - Bot chạy chưa
-/status       - Trạng thái bot
-/ping         - Ping nhanh
-/version      - Version hiện tại
-/healthcheck  - Check Telegram + DB + Binance
-/help         - Danh sách lệnh
-```
-
----
-
-## 🔹 Signals
-
-```text
-/history  - Signal gần nhất
-/top      - Signal score cao
-/stats    - Thống kê performance
-```
-
----
-
-## 🔹 Watchlist
-
-```text
-/watchlist
-/watchadd BTCUSDT
-/watchremove BTCUSDT
-/watchclear
-```
-
----
-
-## 🔹 Scan
-
-```text
-/scan BTCUSDT   - Scan 1 coin ngay
-/scanall        - Scan toàn bộ watchlist
-```
-
----
-
-# 🔄 Flow hoạt động
-
-## 🤖 Auto Mode
-
-* Chạy nền 24/7
-* Scan mỗi 30 giây
-* Nếu có signal:
-
-  * gửi Telegram
-  * lưu DB
-
----
-
-## 📊 Performance Mode
-
-* Sau 5 phút → check kết quả
-* Sau 15 phút → check lại
-* Update:
-
-  * winrate
-  * profit
-  * drawdown
-
----
-
-## 🧠 Manual Mode
-
-Bạn có thể điều khiển bot realtime:
-
-```text
-/scan BTCUSDT
-/scanall
-```
-
----
-
-# 🧪 Test nhanh
-
-## Test bot
-
-```text
-/ping
-```
-
----
-
-## Test toàn hệ thống
-
-```text
-/healthcheck
-```
-
----
-
-## Test scan
-
-```text
-/scan BTCUSDT
-```
+* Docker
+* Gemini API
 
 ---
 
@@ -238,51 +114,55 @@ Bạn có thể điều khiển bot realtime:
 app/
 ├── api/
 ├── db/
-│   ├── models.py
-│   └── session.py
-├── services/
-│   ├── signal_service.py
-│   ├── watchlist_service.py
-│   └── health_service.py
 ├── market/
-│   ├── scanner.py
-│   ├── rest_client.py
-│   └── ws_client.py
+├── services/
 ├── telegram/
-│   └── bot.py
+├── config.py
 ├── main.py
 ```
 
 ---
 
-# ⚠️ Lưu ý
+# ⚙️ Setup
 
-* Bot chỉ phản hồi user đã whitelist
-* Binance API có rate limit
-* Scanner auto chạy song song với command
+## 1. Clone
 
----
-
-# 🚀 Deploy Production
-
-## 1. VPS
-
-* Ubuntu / Linux
-* Cài:
-
-  * Docker
-  * Docker Compose
-
----
-
-## 2. ENV production
-
-```env
-APP_ENV=production
-APP_VERSION=1.0.1
+```bash
+git clone <repo>
+cd binance-bot
 ```
 
----
+## 2. Tạo `.env`
+
+```env
+APP_MODE=test
+APP_ENV=dev
+
+SCANNER_MAX_SYMBOLS_PER_SCAN=200
+SCANNER_RESULTS_LIMIT=20
+SCANNER_MIN_QUOTE_VOLUME_5M=10000
+SCANNER_MIN_PRICE_CHANGE_5M=0.05
+SCANNER_MIN_VOLUME_SPIKE_RATIO=1.1
+TEST_MODE_COOLDOWN_SECONDS=10
+
+TELEGRAM_BOT_TOKEN=your_token
+TELEGRAM_ALLOWED_USER_IDS=123456789
+
+DB_HOST=mysql
+DB_USER=botuser
+DB_PASSWORD=pass
+MYSQL_ROOT_PASSWORD=pass
+
+GEMINI_API_KEY=your_key
+
+RISK_CAPITAL_USDT=100
+RISK_PER_TRADE_PERCENT=2
+MAX_OPEN_TRADES=10
+MAX_NOTIONAL_PER_TRADE=1000
+
+ENABLE_LIVE_TRADING=false
+KILL_SWITCH=false
+```
 
 ## 3. Run
 
@@ -290,11 +170,7 @@ APP_VERSION=1.0.1
 docker compose up -d --build
 ```
 
----
-
-# 🔧 Debug
-
-## Xem log
+## 4. Log
 
 ```bash
 docker logs -f binance-bot-app
@@ -302,232 +178,165 @@ docker logs -f binance-bot-app
 
 ---
 
-## Vào MySQL
-
-```bash
-docker exec -it binance-bot-mysql mysql -u root -p
-```
-
----
-
-# 🧠 Roadmap
-
-## Level 2
-
-* Filter signal theo score
-* Multi-user Telegram
-* Web dashboard
-
----
-
-## Level 3
-
-* AI scoring (Gemini / Claude)
-* Backtest engine
-* Strategy tuning
-
----
-
-## PRO
-
-* Auto trade Binance
-* Risk management
-* Portfolio tracking
-
----
-
 # 🤖 Telegram Commands
 
-Danh sách lệnh Telegram hiện bot đang hỗ trợ.
-
----
-
-## 🔹 System
+## System
 
 ```text
 /start
 /status
 /ping
-/version
 /healthcheck
+/version
 /help
 ```
 
-### Mô tả
+## Trade Mode
 
-* `/start` — kiểm tra bot còn chạy
-* `/status` — xem trạng thái bot
-* `/ping` — ping nhanh
-* `/version` — xem version bot hiện tại
-* `/healthcheck` — kiểm tra Telegram + DB + Binance API
-* `/help` — xem toàn bộ lệnh
+```text
+/mode off
+/mode paper
+/mode live
+/panic
+```
 
----
-
-## 🔹 Signals
+## Signals
 
 ```text
 /history
 /top
 /stats
-/delete_last_signal
-/clear_signals
 ```
 
-### Mô tả
-
-* `/history` — xem signal gần nhất
-* `/top` — xem signal score cao nhất
-* `/stats` — xem thống kê performance 5M / 15M
-* `/delete_last_signal` — xóa signal mới nhất
-* `/clear_signals` — xóa toàn bộ signal
-
----
-
-## 🔹 Watchlist
+## Paper Trading
 
 ```text
-/watchlist
+/paper_open
+/paper_stats
+/paper_today
+/paper_close_all
+/paper_reset
+```
+
+## Watchlist
+
+```text
 /watchadd BTCUSDT
 /watchremove BTCUSDT
-/watchclear
-```
-
-### Mô tả
-
-* `/watchlist` — xem watchlist hiện tại
-* `/watchadd BTCUSDT` — thêm coin vào watchlist
-* `/watchremove BTCUSDT` — xóa 1 coin khỏi watchlist
-* `/watchclear` — xóa toàn bộ watchlist
-
----
-
-## 🔹 Scan
-
-```text
-/scan BTCUSDT
-/scanall
-```
-
-### Mô tả
-
-* `/scan BTCUSDT` — scan 1 coin ngay lập tức
-* `/scanall` — scan toàn bộ coin trong watchlist
-
----
-
-## 🔹 AI / Testing
-
-```text
-/aitest BTCUSDT
-/forcealert BTCUSDT
-```
-
-### Mô tả
-
-* `/aitest BTCUSDT` — test AI filter trên 1 coin
-* `/forcealert BTCUSDT` — ép bot gửi alert test và lưu DB ngay cả khi signal chưa đẹp
-
----
-
-# 📌 Ví dụ sử dụng nhanh
-
-## Kiểm tra bot
-
-```text
-/ping
-/healthcheck
-/version
-```
-
-## Thêm watchlist
-
-```text
-/watchadd BTCUSDT
-/watchadd ETHUSDT
-/watchadd SOLUSDT
 /watchlist
 ```
 
-## Scan thủ công
+## Testing
 
 ```text
 /scan BTCUSDT
 /scanall
-```
-
-## Test AI
-
-```text
 /aitest BTCUSDT
-```
-
-## Tạo dữ liệu test
-
-```text
 /forcealert BTCUSDT
-/history
-/top
-```
-
-## Dọn dữ liệu test
-
-```text
-/delete_last_signal
-/clear_signals
 ```
 
 ---
 
-# 🧪 Kết quả mẫu
+# 🔄 Flow
 
-## `/healthcheck`
+## Scanner
 
-```text
-🩺 HEALTHCHECK
+1. Scan market
+2. AI filter
+3. Build strategy
+4. Build risk
+5. Send Telegram
+6. Save DB
+7. Open paper trade
 
-Telegram: OK
-Database: OK
-Binance API: OK
+## Paper Trade
+
+1. Check price
+2. Hit TP1 → close 50%
+3. Activate trailing
+4. Update trailing
+5. Close TP2 / SL
+
+## Performance
+
+1. Check 5m
+2. Check 15m
+3. Update DB
+4. Send result
+
+---
+
+# 🛡 Safety
+
+* KILL_SWITCH
+* Max trades
+* Duplicate guard
+* Daily loss breaker
+
+---
+
+# 📊 Verified
+
+Đã test OK:
+
+* Open trade
+* TP1 partial
+* Trailing
+* SL / TP2
+* Multi trade
+* Env toggle
+
+---
+
+# 🗄 Database
+
+* signals
+* watchlist
+* bot_state
+* paper_trades
+
+---
+
+# 🔧 Debug
+
+```bash
+docker logs -f binance-bot-app
+docker ps
+docker compose down
+docker compose up -d --build
 ```
 
-## `/scan BTCUSDT`
+---
 
-```text
-🔍 SCAN RESULT
+# 🚀 Deploy
 
-🔥 BTCUSDT
-Score: 70
-5m Change: +2.10%
-Volume: 1.20M
-Spike: x2.30
-Entry: 68450.230000
-```
+## Paper
 
-## `/stats`
+Chạy ổn định trên VPS với Docker
 
-```text
-📊 PERFORMANCE
+## Live
 
-⏱ 5M
-Total: 12
-Wins: 7 | Loses: 4 | Draws: 1
-Winrate: 58.33%
-Avg: +0.21%
+Chưa bật ngay — cần thêm safeguard
 
-⏱ 15M
-Total: 10
-Wins: 6 | Loses: 3 | Draws: 1
-Winrate: 60.00%
-Avg: +0.37%
+---
 
-📈 OVERALL
-Completed Signals: 10
-Avg Max Profit: +0.88%
-Avg Max Drawdown: -0.42%
-```
+# 🧠 Roadmap
 
+* Dashboard
+* Backtest
+* AI nâng cao
+* Live trading Binance
 
-# 👨‍💻 Author
+---
 
-Production-ready crypto trading tool 🚀
+# 👨‍💻 Notes
+
+* Không commit `.env`
+* Test → dùng `APP_MODE=test`
+* Stable → chuyển `APP_MODE=prod`
+
+---
+
+# ✅ Status
+
+**Production-ready paper trading bot**

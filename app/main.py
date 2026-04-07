@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
+from app.config import get_settings
+from app.logger import configure_logging
 from app.telegram.bot import create_bot, send_message
 from app.market.ws_client import stream_btc_trades
 from app.market.scanner import scan_market
@@ -21,7 +23,7 @@ from app.services.market_price_service import get_symbol_price
 from app.services.ai_filter import ai_filter_signal
 from app.services.strategy_service import build_strategy
 from app.services.risk_service import build_risk_plan
-from app.services.trade_mode_service import get_trade_mode
+from app.services.trade_mode_service import get_trade_mode, panic_stop
 from app.services.paper_trade_service import (
     create_paper_trade,
     get_open_paper_trades,
@@ -29,12 +31,12 @@ from app.services.paper_trade_service import (
     partial_close_paper_trade_tp1,
     activate_paper_trade_trailing,
     update_paper_trade_trailing_sl,
+    is_daily_loss_limit_hit,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
+settings = get_settings()
+configure_logging()
+logger = logging.getLogger(__name__)
 
 telegram_app = None
 market_task = None
@@ -43,11 +45,8 @@ performance_task = None
 paper_trade_task = None
 
 last_alerts = {}
+daily_loss_alert_sent = False
 
-ALERT_COOLDOWN_SECONDS = 900
-SCAN_INTERVAL_SECONDS = 30
-PERFORMANCE_CHECK_INTERVAL_SECONDS = 60
-PAPER_TRADE_CHECK_INTERVAL_SECONDS = 20
 SIGNAL_CHECK_AFTER_5M_SECONDS = 300
 SIGNAL_CHECK_AFTER_15M_SECONDS = 900
 
@@ -149,15 +148,32 @@ def format_paper_close_message(symbol: str, reason: str, exit_price: float, resu
     )
 
 
+def format_daily_loss_breaker_message(today_pnl: float) -> str:
+    return (
+        "🛑 DAILY LOSS CIRCUIT BREAKER\n\n"
+        f"Today PnL: {today_pnl:+.2f} USDT\n"
+        f"Limit: -{abs(settings.DAILY_LOSS_LIMIT_USDT):.2f} USDT\n\n"
+        "Paper trading has been stopped automatically."
+    )
+
+
 async def scanner_loop():
     global telegram_app, last_alerts
 
     while True:
         try:
-            logging.info("🔍 Scanner running...")
+            if settings.KILL_SWITCH:
+                logger.warning("KILL_SWITCH active, scanner paused")
+                await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
+                continue
+
+            if settings.is_test_mode:
+                logger.info("🔥 Scanner running (TEST MODE)...")
+            else:
+                logger.info("Scanner running...")
 
             results = await scan_market()
-            logging.info(f"Found {len(results)} coins")
+            logger.info("Found %s coins", len(results))
 
             now = time.time()
             new_alerts = []
@@ -166,45 +182,54 @@ async def scanner_loop():
                 symbol = coin["symbol"]
                 score = coin["score"]
 
-                cooldown = ALERT_COOLDOWN_SECONDS
-                if score >= 80:
-                    cooldown = 300
-                elif score >= 60:
-                    cooldown = 600
+                if settings.is_test_mode:
+                    cooldown = settings.TEST_MODE_COOLDOWN_SECONDS
+                else:
+                    cooldown = settings.ALERT_COOLDOWN_SECONDS
+                    if score >= 80:
+                        cooldown = 300
+                    elif score >= 60:
+                        cooldown = 600
 
                 last_time = last_alerts.get(symbol)
 
-                if last_time is None or now - last_time > cooldown:
-                    ai_result = ai_filter_signal(coin)
+                if last_time is not None and now - last_time <= cooldown:
+                    logger.debug("Cooldown skip %s", symbol)
+                    continue
 
-                    if not ai_result:
-                        logging.info(f"AI skipped {symbol}")
-                        continue
+                ai_result = ai_filter_signal(coin)
+                if not ai_result:
+                    logger.info("AI skipped %s", symbol)
+                    continue
 
-                    coin["ai"] = ai_result
-                    coin["strategy"] = build_strategy(coin)
-                    coin["risk"] = build_risk_plan(coin["strategy"])
+                coin["ai"] = ai_result
+                coin["strategy"] = build_strategy(coin)
 
-                    new_alerts.append(coin)
-                    last_alerts[symbol] = now
+                risk = build_risk_plan(coin["strategy"])
+                if not risk:
+                    logger.warning("Risk rejected %s", symbol)
+                    continue
 
-            logging.info(f"Sending {len(new_alerts)} alerts")
+                coin["risk"] = risk
+                new_alerts.append(coin)
+                last_alerts[symbol] = now
+
+            logger.info("🚀 Sending %s alerts", len(new_alerts))
 
             if new_alerts:
                 msg = format_market_message(new_alerts)
                 await send_message(telegram_app, msg)
 
                 mode = get_trade_mode()
-
                 open_trades = get_open_paper_trades()
-                open_symbols = {trade.symbol for trade in open_trades}
+                open_symbols = {trade.symbol.upper() for trade in open_trades}
 
                 for coin in new_alerts:
                     save_signal(coin)
 
                     if mode["trade_mode"] == "PAPER" and mode["auto_trade_enabled"]:
-                        if coin["symbol"] in open_symbols:
-                            logging.info(f"Skip opening duplicate paper trade for {coin['symbol']}")
+                        if coin["symbol"].upper() in open_symbols:
+                            logger.info("Skip duplicate paper trade for %s", coin["symbol"])
                             continue
 
                         trade = create_paper_trade({
@@ -220,7 +245,11 @@ async def scanner_loop():
                             "notional": coin["risk"]["notional"],
                         })
 
-                        open_symbols.add(coin["symbol"])
+                        if not trade:
+                            logger.warning("Create paper trade failed %s", coin["symbol"])
+                            continue
+
+                        open_symbols.add(coin["symbol"].upper())
 
                         await send_message(
                             telegram_app,
@@ -233,22 +262,50 @@ async def scanner_loop():
                             ),
                         )
 
-                logging.info(f"Sent {len(new_alerts)} alerts to Telegram + DB")
+                logger.info("✅ Sent %s alerts to Telegram + DB", len(new_alerts))
 
         except Exception as e:
-            logging.error(f"Scanner loop error: {e}")
+            logger.exception("Scanner loop error: %s", e)
 
-        await asyncio.sleep(SCAN_INTERVAL_SECONDS)
+        await asyncio.sleep(settings.SCAN_INTERVAL_SECONDS)
 
 
 async def paper_trade_loop():
-    global telegram_app
+    global telegram_app, daily_loss_alert_sent
 
     while True:
         try:
+            if settings.KILL_SWITCH:
+                logger.warning("KILL_SWITCH active, paper trade loop paused")
+                await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+                continue
+
             mode = get_trade_mode()
             if mode["trade_mode"] != "PAPER" or not mode["auto_trade_enabled"]:
-                await asyncio.sleep(PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+                daily_loss_alert_sent = False
+                await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+                continue
+
+            limit_hit, today_pnl = is_daily_loss_limit_hit()
+            if limit_hit:
+                if not daily_loss_alert_sent:
+                    logger.warning("Daily loss limit hit | pnl=%s", today_pnl)
+
+                    state = panic_stop()
+
+                    await send_message(
+                        telegram_app,
+                        format_daily_loss_breaker_message(today_pnl),
+                    )
+
+                    logger.warning(
+                        "Paper mode stopped by daily loss breaker | mode=%s",
+                        state["trade_mode"],
+                    )
+
+                    daily_loss_alert_sent = True
+
+                await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
                 continue
 
             trades = get_open_paper_trades()
@@ -259,8 +316,10 @@ async def paper_trade_loop():
                     continue
 
                 if trade.entry_price <= 0:
-                    logging.warning(
-                        f"Skip invalid entry_price | trade_id={trade.id} | entry={trade.entry_price}"
+                    logger.warning(
+                        "Skip invalid entry_price | trade_id=%s | entry=%s",
+                        trade.id,
+                        trade.entry_price,
                     )
                     continue
 
@@ -268,9 +327,12 @@ async def paper_trade_loop():
                     result_percent = ((price - trade.entry_price) / trade.entry_price) * 100
 
                     if abs(result_percent) > 100:
-                        logging.warning(
-                            f"Skip abnormal LONG result | trade_id={trade.id} "
-                            f"| entry={trade.entry_price} | price={price} | result={result_percent}"
+                        logger.warning(
+                            "Skip abnormal LONG result | trade_id=%s | entry=%s | price=%s | result=%s",
+                            trade.id,
+                            trade.entry_price,
+                            price,
+                            result_percent,
                         )
                         continue
 
@@ -344,9 +406,12 @@ async def paper_trade_loop():
                     result_percent = ((trade.entry_price - price) / trade.entry_price) * 100
 
                     if abs(result_percent) > 100:
-                        logging.warning(
-                            f"Skip abnormal SHORT result | trade_id={trade.id} "
-                            f"| entry={trade.entry_price} | price={price} | result={result_percent}"
+                        logger.warning(
+                            "Skip abnormal SHORT result | trade_id=%s | entry=%s | price=%s | result=%s",
+                            trade.id,
+                            trade.entry_price,
+                            price,
+                            result_percent,
                         )
                         continue
 
@@ -417,9 +482,9 @@ async def paper_trade_loop():
                             )
 
         except Exception as e:
-            logging.error(f"Paper trade loop error: {e}")
+            logger.exception("Paper trade loop error: %s", e)
 
-        await asyncio.sleep(PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+        await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
 
 
 async def performance_loop():
@@ -445,7 +510,11 @@ async def performance_loop():
                 if not price or s.entry_price <= 0:
                     continue
 
-                change = ((price - s.entry_price) / s.entry_price) * 100
+                if s.side == "SHORT":
+                    change = ((s.entry_price - price) / s.entry_price) * 100
+                else:
+                    change = ((price - s.entry_price) / s.entry_price) * 100
+
                 data = {}
 
                 if s.max_profit is None or change > s.max_profit:
@@ -487,14 +556,16 @@ async def performance_loop():
                     await send_message(telegram_app, send_msg)
 
         except Exception as e:
-            logging.error(f"Performance error: {e}")
+            logger.exception("Performance error: %s", e)
 
-        await asyncio.sleep(PERFORMANCE_CHECK_INTERVAL_SECONDS)
+        await asyncio.sleep(settings.PERFORMANCE_CHECK_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global telegram_app, market_task, scanner_task, performance_task, paper_trade_task
+
+    logger.info("Starting app | env=%s | mode=%s", settings.APP_ENV, settings.APP_MODE)
 
     Base.metadata.create_all(bind=engine)
 
@@ -511,17 +582,11 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    if market_task:
-        market_task.cancel()
+    logger.info("Shutting down app")
 
-    if scanner_task:
-        scanner_task.cancel()
-
-    if performance_task:
-        performance_task.cancel()
-
-    if paper_trade_task:
-        paper_trade_task.cancel()
+    for task in [market_task, scanner_task, performance_task, paper_trade_task]:
+        if task:
+            task.cancel()
 
     await telegram_app.updater.stop()
     await telegram_app.stop()

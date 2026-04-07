@@ -8,16 +8,19 @@ def save_signal(data: dict):
     db = SessionLocal()
     try:
         signal = Signal(
-            symbol=data["symbol"],
-            score=data["score"],
-            price_change_5m=data["price_change_5m"],
-            volume_5m=data["quote_volume_5m"],
-            volume_spike=data["volume_spike_ratio"],
-            entry_price=data["entry_price"],
+            symbol=str(data["symbol"]).upper().strip(),
+            side=str(data.get("side", "LONG")).upper().strip(),
+            score=float(data["score"]),
+            price_change_5m=float(data["price_change_5m"]),
+            quote_volume_5m=float(data["quote_volume_5m"]),
+            volume_spike_ratio=float(data["volume_spike_ratio"]),
+            entry_price=float(data["entry_price"]),
             status="pending",
         )
         db.add(signal)
         db.commit()
+        db.refresh(signal)
+        return signal
     finally:
         db.close()
 
@@ -27,7 +30,7 @@ def get_latest_signals(limit: int = 10):
     try:
         return (
             db.query(Signal)
-            .order_by(desc(Signal.created_at))
+            .order_by(desc(Signal.created_at), desc(Signal.id))
             .limit(limit)
             .all()
         )
@@ -40,7 +43,7 @@ def get_top_signals(limit: int = 10):
     try:
         return (
             db.query(Signal)
-            .order_by(desc(Signal.score))
+            .order_by(desc(Signal.score), desc(Signal.created_at))
             .limit(limit)
             .all()
         )
@@ -54,7 +57,7 @@ def get_pending_signals(limit: int = 20):
         return (
             db.query(Signal)
             .filter(Signal.status == "pending")
-            .order_by(Signal.created_at.asc())
+            .order_by(Signal.created_at.asc(), Signal.id.asc())
             .limit(limit)
             .all()
         )
@@ -67,26 +70,28 @@ def update_performance(signal_id: int, data: dict):
     try:
         s = db.query(Signal).filter(Signal.id == signal_id).first()
         if not s:
-            return
+            return None
 
         if "result_5m" in data:
-            s.result_5m = data["result_5m"]
+            s.result_5m = float(data["result_5m"])
             s.checked_5m_at = db.execute(text("SELECT NOW()")).scalar()
 
         if "result_15m" in data:
-            s.result_15m = data["result_15m"]
+            s.result_15m = float(data["result_15m"])
             s.checked_15m_at = db.execute(text("SELECT NOW()")).scalar()
 
         if "max_profit" in data:
-            s.max_profit = data["max_profit"]
+            s.max_profit = float(data["max_profit"])
 
         if "max_drawdown" in data:
-            s.max_drawdown = data["max_drawdown"]
+            s.max_drawdown = float(data["max_drawdown"])
 
         if s.result_15m is not None:
             s.status = "done"
 
         db.commit()
+        db.refresh(s)
+        return s
     finally:
         db.close()
 

@@ -1,7 +1,11 @@
 def build_strategy(signal: dict) -> dict:
+    symbol = str(signal.get("symbol", "")).upper().strip()
     entry = float(signal["entry_price"])
-    side = signal.get("side", "LONG")
+    side = str(signal.get("side", "LONG")).upper().strip()
     atr = float(signal.get("atr", 0.0))
+
+    if side not in {"LONG", "SHORT"}:
+        side = "LONG"
 
     if entry <= 0:
         entry = 1.0
@@ -28,6 +32,7 @@ def build_strategy(signal: dict) -> dict:
     rr = reward / risk if risk != 0 else 0.0
 
     return {
+        "symbol": symbol,
         "side": side,
         "entry": entry,
         "sl": sl,
