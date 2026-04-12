@@ -62,7 +62,11 @@ def validate_strategy(strategy: dict) -> tuple[bool, str | None]:
     return True, None
 
 
-def validate_risk_limits(symbol: str, notional: float, risk_amount: float) -> tuple[bool, str | None]:
+def validate_risk_limits(
+    symbol: str,
+    notional: float,
+    risk_amount: float,
+) -> tuple[bool, str | None]:
     if settings.KILL_SWITCH:
         return False, "KILL_SWITCH active"
 
@@ -91,6 +95,47 @@ def validate_risk_limits(symbol: str, notional: float, risk_amount: float) -> tu
     return True, None
 
 
+def calculate_position_size(
+    entry: float,
+    sl: float,
+    capital: float,
+    risk_percent: float,
+) -> dict | None:
+    if entry <= 0 or sl <= 0:
+        return None
+
+    if capital <= 0:
+        return None
+
+    if risk_percent <= 0 or risk_percent > 100:
+        return None
+
+    stop_distance = abs(entry - sl)
+    if stop_distance <= 0:
+        return None
+
+    risk_amount = capital * (risk_percent / 100.0)
+    if risk_amount <= 0:
+        return None
+
+    position_size = risk_amount / stop_distance
+    if position_size <= 0:
+        return None
+
+    notional = position_size * entry
+    if notional <= 0:
+        return None
+
+    return {
+        "capital": capital,
+        "risk_percent": risk_percent,
+        "risk_amount": risk_amount,
+        "stop_distance": stop_distance,
+        "position_size": position_size,
+        "notional": notional,
+    }
+
+
 def build_risk_plan(strategy: dict) -> dict | None:
     ok, reason = validate_strategy(strategy)
     if not ok:
@@ -102,35 +147,49 @@ def build_risk_plan(strategy: dict) -> dict | None:
     entry = float(strategy["entry"])
     sl = float(strategy["sl"])
     symbol = str(strategy["symbol"]).upper().strip()
+    side = str(strategy["side"]).upper().strip()
 
-    if capital <= 0:
+    sizing = calculate_position_size(
+        entry=entry,
+        sl=sl,
+        capital=capital,
+        risk_percent=risk_percent,
+    )
+    if not sizing:
         return None
 
-    if risk_percent <= 0 or risk_percent > 100:
-        return None
-
-    risk_amount = capital * (risk_percent / 100.0)
-    stop_distance = abs(entry - sl)
-
-    if stop_distance <= 0:
-        return None
-
-    position_size = risk_amount / stop_distance
-    notional = position_size * entry
-
-    if position_size <= 0:
-        return None
-
-    ok, reason = validate_risk_limits(symbol, notional, risk_amount)
+    ok, reason = validate_risk_limits(
+        symbol=symbol,
+        notional=float(sizing["notional"]),
+        risk_amount=float(sizing["risk_amount"]),
+    )
     if not ok:
         return None
 
+    tp1 = float(strategy["tp1"])
+    tp2 = float(strategy["tp2"])
+
+    reward_tp1 = abs(tp1 - entry)
+    reward_tp2 = abs(tp2 - entry)
+
+    rr_tp1 = reward_tp1 / sizing["stop_distance"] if sizing["stop_distance"] > 0 else 0.0
+    rr_tp2 = reward_tp2 / sizing["stop_distance"] if sizing["stop_distance"] > 0 else 0.0
+
     return {
-        "capital": capital,
-        "risk_percent": risk_percent,
-        "risk_amount": risk_amount,
-        "position_size": position_size,
-        "notional": notional,
+        "capital": float(sizing["capital"]),
+        "risk_percent": float(sizing["risk_percent"]),
+        "risk_amount": float(sizing["risk_amount"]),
+        "position_size": float(sizing["position_size"]),
+        "notional": float(sizing["notional"]),
+        "stop_distance": float(sizing["stop_distance"]),
+        "entry": float(entry),
+        "sl": float(sl),
+        "tp1": float(tp1),
+        "tp2": float(tp2),
+        "symbol": symbol,
+        "side": side,
+        "rr_tp1": float(rr_tp1),
+        "rr_tp2": float(rr_tp2),
     }
 
 

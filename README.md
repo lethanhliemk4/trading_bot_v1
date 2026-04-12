@@ -9,6 +9,7 @@ Hệ thống đã hoàn thiện:
 * Paper trading full flow (TP1 + trailing)
 * Risk management
 * Env toggle test / prod
+* Live trading engine (SAFE MODE)
 
 ---
 
@@ -71,46 +72,42 @@ Hệ thống đã hoàn thiện:
 
 ---
 
+## 🚨 Live Trading (SAFE MODE)
+
+* Binance market order execution
+* Balance validation
+* Notional validation
+* Sync trạng thái order
+* Debug và kiểm tra lệnh
+* Không phá logic paper
+
+---
+
 ## ⚙️ Env Mode
 
 ### TEST MODE
 
 ```env
 APP_MODE=test
-```
-
-* Spam signal nhiều
-* Cooldown ngắn
-* AI always pass
-* Dùng để test TP1 / trailing
-
-### PROD MODE
-
-```env
+Spam signal nhiều
+Cooldown ngắn
+AI always pass
+Dùng để test TP1 / trailing
+PROD MODE
 APP_MODE=prod
-```
-
-* Signal ít hơn
-* AI thật
-* Stable hơn
-
----
-
-# 🧱 Tech Stack
-
-* Python 3.13
-* FastAPI
-* python-telegram-bot
-* MySQL
-* SQLAlchemy
-* Docker
-* Gemini API
-
----
-
-# 📁 Project Structure
-
-```text
+Signal ít hơn
+AI thật
+Stable hơn
+🧱 Tech Stack
+Python 3.13
+FastAPI
+python-telegram-bot
+MySQL
+SQLAlchemy
+Docker
+Gemini API
+Binance REST API
+📁 Project Structure
 app/
 ├── api/
 ├── db/
@@ -119,22 +116,11 @@ app/
 ├── telegram/
 ├── config.py
 ├── main.py
-```
-
----
-
-# ⚙️ Setup
-
-## 1. Clone
-
-```bash
+⚙️ Setup
+1. Clone
 git clone <repo>
 cd binance-bot
-```
-
-## 2. Tạo `.env`
-
-```env
+2. Tạo .env
 APP_MODE=test
 APP_ENV=dev
 
@@ -159,184 +145,138 @@ RISK_CAPITAL_USDT=100
 RISK_PER_TRADE_PERCENT=2
 MAX_OPEN_TRADES=10
 MAX_NOTIONAL_PER_TRADE=1000
+DAILY_LOSS_LIMIT_USDT=20
 
 ENABLE_LIVE_TRADING=false
+LIVE_EXECUTION_ENABLED=false
+LIVE_CONFIRM_REAL_ORDERS=false
+
 KILL_SWITCH=false
-```
-
-## 3. Run
-
-```bash
+3. Run
 docker compose up -d --build
-```
-
-## 4. Log
-
-```bash
+4. Log
 docker logs -f binance-bot-app
-```
-
----
-
-# 🤖 Telegram Commands
-
-## System
-
-```text
+📱 Telegram Commands
+System
 /start
 /status
 /ping
 /healthcheck
 /version
 /help
-```
-
-## Trade Mode
-
-```text
+Trade Mode
 /mode off
 /mode paper
 /mode live
+/confirm_live
 /panic
-```
-
-## Signals
-
-```text
+Signals
 /history
 /top
 /stats
-```
-
-## Paper Trading
-
-```text
+Paper Trading
 /paper_open
 /paper_stats
 /paper_today
 /paper_close_all
 /paper_reset
-```
-
-## Watchlist
-
-```text
+Watchlist
 /watchadd BTCUSDT
 /watchremove BTCUSDT
 /watchlist
-```
-
-## Testing
-
-```text
+Testing
 /scan BTCUSDT
 /scanall
 /aitest BTCUSDT
 /forcealert BTCUSDT
-```
-
----
-
-# 🔄 Flow
-
-## Scanner
-
-1. Scan market
-2. AI filter
-3. Build strategy
-4. Build risk
-5. Send Telegram
-6. Save DB
-7. Open paper trade
-
-## Paper Trade
-
-1. Check price
-2. Hit TP1 → close 50%
-3. Activate trailing
-4. Update trailing
-5. Close TP2 / SL
-
-## Performance
-
-1. Check 5m
-2. Check 15m
-3. Update DB
-4. Send result
-
----
-
-# 🛡 Safety
-
-* KILL_SWITCH
-* Max trades
-* Duplicate guard
-* Daily loss breaker
-
----
-
-# 📊 Verified
+Live
+/live_test BTCUSDT
+/live_open
+/live_history
+/live_stats
+/live_sync
+/live_sync_one 123
+/live_close_test 123
+/live_detail 123
+/live_detail 123 full
+🔄 Flow
+Scanner
+Scan market
+AI filter
+Build strategy
+Build risk
+Send Telegram
+Save DB
+Open paper trade
+Paper Trade
+Check price
+Hit TP1 → close 50%
+Activate trailing
+Update trailing
+Close TP2 / SL
+Live Trade
+Validate signal
+Validate risk
+Validate balance
+Place Binance order
+Sync order
+Manage position (TP1 / trailing / TP2)
+Performance
+Check 5m
+Check 15m
+Update DB
+Send result
+🛡 Safety
+KILL_SWITCH
+Max trades
+Duplicate guard
+Daily loss breaker
+Live safety layer
+📊 Verified
 
 Đã test OK:
 
-* Open trade
-* TP1 partial
-* Trailing
-* SL / TP2
-* Multi trade
-* Env toggle
-
----
-
-# 🗄 Database
-
-* signals
-* watchlist
-* bot_state
-* paper_trades
-
----
-
-# 🔧 Debug
-
-```bash
+Open trade
+TP1 partial
+Trailing
+SL / TP2
+Multi trade
+Env toggle
+Risk system
+Duplicate guard
+🗄 Database
+signals
+watchlist
+bot_state
+paper_trades
+🔧 Debug
 docker logs -f binance-bot-app
 docker ps
 docker compose down
 docker compose up -d --build
-```
-
----
-
-# 🚀 Deploy
-
-## Paper
+🚀 Deploy
+Paper
 
 Chạy ổn định trên VPS với Docker
 
-## Live
+Live
 
-Chưa bật ngay — cần thêm safeguard
+Chỉ bật khi:
 
----
+Paper stable
+Risk OK
+Sync OK
+API OK
+🧠 Roadmap
+Dashboard
+Backtest
+AI nâng cao
+Scaling system
+👨‍💻 Notes
+Không commit .env
+Test → dùng APP_MODE=test
+Stable → chuyển APP_MODE=prod
+Live → bật từng bước (safe mode)
+🎯 FINAL STATUS
 
-# 🧠 Roadmap
-
-* Dashboard
-* Backtest
-* AI nâng cao
-* Live trading Binance
-
----
-
-# 👨‍💻 Notes
-
-* Không commit `.env`
-* Test → dùng `APP_MODE=test`
-* Stable → chuyển `APP_MODE=prod`
-
----
-
-# ✅ Status
-
-**Production-ready paper trading bot**
+👉 Production-ready paper trading + safe live trading system

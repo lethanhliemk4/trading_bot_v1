@@ -25,7 +25,7 @@ class Settings(BaseSettings):
 
     TELEGRAM_BOT_TOKEN: str
     TELEGRAM_ALLOWED_USER_IDS: str
-    LIVE_ALLOWED_USER_IDS: str
+    LIVE_ALLOWED_USER_IDS: str = ""
 
     GEMINI_API_KEY: str | None = None
 
@@ -61,6 +61,36 @@ class Settings(BaseSettings):
     # ===== Test mode config =====
     TEST_MODE_COOLDOWN_SECONDS: int = 10
 
+    # ===== Binance live trading config =====
+    BINANCE_API_KEY: str | None = None
+    BINANCE_API_SECRET: str | None = None
+    BINANCE_USE_TESTNET: bool = True
+
+    # Explicit arming flags so live cannot be enabled by accident
+    LIVE_CONFIRM_REAL_ORDERS: bool = False
+    LIVE_EXECUTION_ENABLED: bool = False
+
+    # Exchange endpoints
+    BINANCE_REST_BASE_URL: str = "https://api.binance.com"
+    BINANCE_WS_BASE_URL: str = "wss://stream.binance.com:9443"
+
+    BINANCE_TESTNET_REST_BASE_URL: str = "https://testnet.binance.vision"
+    BINANCE_TESTNET_WS_BASE_URL: str = "wss://testnet.binance.vision/ws"
+
+    # Timeouts / recv window
+    BINANCE_RECV_WINDOW_MS: int = 5000
+    BINANCE_HTTP_TIMEOUT_SECONDS: int = 15
+
+    # ===== Live execution safety config =====
+    LIVE_MAX_NOTIONAL_PER_TRADE: float = 50.0
+    LIVE_MAX_OPEN_TRADES: int = 2
+    LIVE_DAILY_LOSS_LIMIT_USDT: float = 25.0
+    LIVE_MIN_FREE_USDT: float = 25.0
+
+    # Optional execution behavior toggles for future live engine
+    LIVE_PLACE_SL_TP_AFTER_ENTRY: bool = True
+    LIVE_CANCEL_ENTRY_ON_PROTECTION_FAILURE: bool = True
+
     @property
     def sqlalchemy_database_uri(self) -> str:
         return (
@@ -91,6 +121,26 @@ class Settings(BaseSettings):
     @property
     def is_test_mode(self) -> bool:
         return self.APP_MODE == "test"
+
+    @property
+    def is_live_trading_active(self) -> bool:
+        return (
+            self.ENABLE_LIVE_TRADING
+            and self.LIVE_EXECUTION_ENABLED
+            and self.LIVE_CONFIRM_REAL_ORDERS
+        )
+
+    @property
+    def active_binance_rest_base_url(self) -> str:
+        if self.BINANCE_USE_TESTNET:
+            return self.BINANCE_TESTNET_REST_BASE_URL
+        return self.BINANCE_REST_BASE_URL
+
+    @property
+    def active_binance_ws_base_url(self) -> str:
+        if self.BINANCE_USE_TESTNET:
+            return self.BINANCE_TESTNET_WS_BASE_URL
+        return self.BINANCE_WS_BASE_URL
 
     def validate_runtime(self):
         if self.PORT <= 0 or self.PORT > 65535:
@@ -153,11 +203,29 @@ class Settings(BaseSettings):
         if self.TEST_MODE_COOLDOWN_SECONDS <= 0:
             raise ValueError("TEST_MODE_COOLDOWN_SECONDS must be greater than 0")
 
-        if self.KILL_SWITCH:
-            return
+        if self.BINANCE_RECV_WINDOW_MS <= 0:
+            raise ValueError("BINANCE_RECV_WINDOW_MS must be greater than 0")
+
+        if self.BINANCE_HTTP_TIMEOUT_SECONDS <= 0:
+            raise ValueError("BINANCE_HTTP_TIMEOUT_SECONDS must be greater than 0")
+
+        if self.LIVE_MAX_NOTIONAL_PER_TRADE <= 0:
+            raise ValueError("LIVE_MAX_NOTIONAL_PER_TRADE must be greater than 0")
+
+        if self.LIVE_MAX_OPEN_TRADES <= 0:
+            raise ValueError("LIVE_MAX_OPEN_TRADES must be greater than 0")
+
+        if self.LIVE_DAILY_LOSS_LIMIT_USDT <= 0:
+            raise ValueError("LIVE_DAILY_LOSS_LIMIT_USDT must be greater than 0")
+
+        if self.LIVE_MIN_FREE_USDT < 0:
+            raise ValueError("LIVE_MIN_FREE_USDT must be >= 0")
 
         if not self.TELEGRAM_ALLOWED_USER_IDS.strip():
             raise ValueError("TELEGRAM_ALLOWED_USER_IDS is required")
+
+        if self.KILL_SWITCH:
+            return
 
         if self.ENABLE_LIVE_TRADING:
             if self.REQUIRE_PROD_FOR_LIVE and not self.is_production:
@@ -165,6 +233,21 @@ class Settings(BaseSettings):
 
             if not self.LIVE_ALLOWED_USER_IDS.strip():
                 raise ValueError("LIVE trading requires LIVE_ALLOWED_USER_IDS")
+
+            if not self.BINANCE_API_KEY or not self.BINANCE_API_KEY.strip():
+                raise ValueError("LIVE trading requires BINANCE_API_KEY")
+
+            if not self.BINANCE_API_SECRET or not self.BINANCE_API_SECRET.strip():
+                raise ValueError("LIVE trading requires BINANCE_API_SECRET")
+
+        if self.is_live_trading_active:
+            if self.REQUIRE_PROD_FOR_LIVE and not self.is_production:
+                raise ValueError("Active LIVE execution requires APP_ENV=prod")
+
+            if self.BINANCE_USE_TESTNET and self.LIVE_CONFIRM_REAL_ORDERS:
+                raise ValueError(
+                    "LIVE_CONFIRM_REAL_ORDERS should not be True while BINANCE_USE_TESTNET=True"
+                )
 
 
 @lru_cache

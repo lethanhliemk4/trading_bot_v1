@@ -32,7 +32,7 @@ def create_paper_trade(data: dict):
         if side not in {"LONG", "SHORT"}:
             return None
 
-        entry = _safe_float(data["entry_price"])
+        entry = _safe_float(data.get("entry_price", data.get("entry")))
         sl = _safe_float(data["sl"])
         tp1 = _safe_float(data["tp1"])
         tp2 = _safe_float(data["tp2"])

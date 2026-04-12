@@ -12,6 +12,7 @@
 * ✅ Multi trades
 * ✅ Scanner + AI + Risk
 * ✅ Env toggle (test / prod)
+* ✅ Live trading engine (SAFE MODE)
 
 👉 **System is stable → DO NOT BREAK CORE LOGIC**
 
@@ -50,51 +51,50 @@ Không được sửa:
 
 ---
 
-# 🏗️ ARCHITECTURE
+## 5. 🚨 LIVE RULE (BỔ SUNG)
+
+* ❌ Không merge logic paper + live
+* ❌ Không sửa logic khi đang chạy
+* ❌ Không deploy code chưa test
+* ❌ Không bật live full vốn
+* ❌ Không bypass risk layer
+* ❌ Không bypass duplicate guard
+* ✅ Live là execution layer riêng
+
+---
+
+# 🧠 SYSTEM DESIGN (QUAN TRỌNG NHẤT)
 
 ```text
+Paper = simulation engine
+Live = execution layer
+
+👉 Không được trộn 2 logic này
+
+🏗️ ARCHITECTURE
 VPS
 ├── binance-bot-app
 └── binance-bot-mysql
-```
-
-* Không cần Nginx
-* Không expose MySQL
-* Bot chạy Telegram polling
-
----
-
-# 📦 REQUIREMENTS
-
-## VPS cần có:
-
-* Docker
-* Docker Compose
-* Git
+Không cần Nginx
+Không expose MySQL
+Bot chạy Telegram polling
+Có thể scale thêm worker sau này
+📦 REQUIREMENTS
+VPS cần có:
+Docker
+Docker Compose
+Git
 
 Check:
 
-```bash
 docker --version
 docker compose version
 git --version
-```
-
----
-
-# 📥 CLONE PROJECT
-
-```bash
+📥 CLONE PROJECT
 cd /opt
 git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git
 cd YOUR_REPO
-```
-
----
-
-# ⚙️ ENV CONFIG (VPS)
-
-```env
+⚙️ ENV CONFIG (VPS)
 APP_MODE=prod
 APP_ENV=dev
 
@@ -118,195 +118,202 @@ GEMINI_API_KEY=your_key
 RISK_CAPITAL_USDT=100
 RISK_PER_TRADE_PERCENT=2
 MAX_OPEN_TRADES=5
+MAX_NOTIONAL_PER_TRADE=1000
+DAILY_LOSS_LIMIT_USDT=20
 
 ENABLE_LIVE_TRADING=false
+LIVE_EXECUTION_ENABLED=false
+LIVE_CONFIRM_REAL_ORDERS=false
+
 KILL_SWITCH=false
 
 TZ=Asia/Ho_Chi_Minh
-```
-
----
-
-# 🚀 RUN PROJECT
-
-```bash
+🚀 RUN PROJECT
 docker compose up -d --build
-```
-
----
-
-# 🔍 CHECK SYSTEM
-
-## Container
-
-```bash
+🔍 CHECK SYSTEM
+Container
 docker ps
-```
-
-## Log
-
-```bash
+Log
 docker logs -f binance-bot-app
-```
-
----
-
-# 📱 TELEGRAM TEST
-
-```text
+📱 TELEGRAM TEST
 /start
 /status
 /mode paper
 /paper_today
-```
 
 Test tay:
 
-```text
 /forcealert BTCUSDT
-```
-
----
-
-# 🔄 DAILY COMMANDS
-
-## Update code
-
-```bash
+📱 TELEGRAM COMMANDS
+System
+/start
+/status
+/ping
+/version
+/healthcheck
+/help
+Trade Mode
+/mode off
+/mode paper
+/mode live
+/confirm_live
+/panic
+Signals
+/history
+/top
+/stats
+Paper Trading
+/paper_open
+/paper_stats
+/paper_today
+/paper_close_all
+/paper_reset
+Watchlist
+/watchadd BTCUSDT
+/watchremove BTCUSDT
+/watchlist
+Testing
+/scan BTCUSDT
+/scanall
+/aitest BTCUSDT
+/forcealert BTCUSDT
+Live
+/live_test BTCUSDT
+/live_open
+/live_history
+/live_stats
+/live_sync
+/live_sync_one 123
+/live_close_test 123
+/live_detail 123
+/live_detail 123 full
+🔄 DAILY COMMANDS
+Update code
 git pull
 docker compose up -d --build
-```
-
-## Restart
-
-```bash
+Restart
 docker compose restart
-```
-
-## Stop
-
-```bash
+Stop
 docker compose down
-```
-
----
-
-# ⚠️ SECURITY
-
-## ❗ KHÔNG commit .env
-
-```gitignore
+⚠️ SECURITY
+❗ KHÔNG commit .env
 .env
-```
-
-## ❗ Nếu lộ Telegram token
+❗ Nếu lộ Telegram token
 
 → regenerate ngay
 
-## ❗ Không mở port MySQL
-
----
-
-# 🧪 TEST MODE vs PROD MODE
-
-| Mode | Behavior                 |
-| ---- | ------------------------ |
-| test | spam nhanh, AI luôn pass |
-| prod | scan thật, AI thật       |
-
----
-
-# 🚀 DEPLOY STRATEGY (QUAN TRỌNG)
-
-## ❌ Sai
+❗ Không mở port MySQL
+❗ Không log API key
+🧪 TEST MODE vs PROD MODE
+Mode	Behavior
+test	spam nhanh, AI luôn pass
+prod	scan thật, AI thật
+🚀 DEPLOY STRATEGY (QUAN TRỌNG)
+❌ Sai
 
 Local → LIVE
 
-## ✅ Đúng
-
-```text
+✅ Đúng
 Local → VPS (paper) → ổn định → LIVE
-```
+📊 CHECKLIST VPS OK
+ container chạy
+ Telegram phản hồi
+ scanner chạy
+ có trade mở
+ không crash
+ DB ghi dữ liệu OK
+🔥 LIVE PHASE
+Khi nào được bật live:
+chạy paper ổn định
+không crash
+risk đúng
+TP1 / trailing hoạt động chuẩn
+daily loss breaker OK
+🔐 LIVE SAFETY LAYER
 
----
+Bot chỉ trade khi:
 
-# 📊 CHECKLIST VPS OK
-
-* [ ] container chạy
-* [ ] Telegram phản hồi
-* [ ] scanner chạy
-* [ ] có trade mở
-* [ ] không crash
-
----
-
-# 🔥 LIVE PHASE (CHƯA LÀM NGAY)
-
-## Khi nào được bật live:
-
-* chạy paper ổn định
-* không crash
-* risk đúng
-
----
-
-## LIVE SAFE CONFIG
-
-```env
 ENABLE_LIVE_TRADING=true
+LIVE_EXECUTION_ENABLED=true
+LIVE_CONFIRM_REAL_ORDERS=true
+APP_ENV=prod
+API key hợp lệ
+API secret hợp lệ
+Balance đủ
+Notional hợp lệ
+LIVE SAFE CONFIG
+ENABLE_LIVE_TRADING=true
+LIVE_EXECUTION_ENABLED=true
+LIVE_CONFIRM_REAL_ORDERS=true
+
 RISK_CAPITAL_USDT=10
 MAX_OPEN_TRADES=1
-```
-
----
-
-## ⚠️ Cảnh báo
-
-* ❌ không bật live ngay
-* ❌ không trade full vốn
-* ❌ không sửa logic khi đang chạy
-
----
-
-# 🧱 SYSTEM FLOW (LOCKED)
-
-```text
+KILL_SWITCH=false
+⚠️ Cảnh báo
+❌ không bật live ngay
+❌ không trade full vốn
+❌ không sửa logic khi đang chạy
+🚨 LIVE FEATURES
+Execution
+Binance market order
+Quantity normalize
+Min notional validation
+Balance check
+Trade lifecycle
+TP1 hit
+trailing SL activate
+trailing update
+TP2 / SL / TSL close
+Control
+manual close
+sync Binance
+debug trade
+Data tracking
+executed_qty
+remaining_qty
+avg_fill_price
+realized_pnl
+🚫 DUPLICATE GUARD
+Không mở lệnh nếu symbol đang có trade OPEN
+🧪 DEBUG LIVE FLOW
+bật config nhỏ
+/live_test BTCUSDT
+/live_open
+/live_sync
+/live_detail <id>
+/live_detail <id> full
+📊 LIVE CHECKLIST
+ paper stable
+ TP1 OK
+ trailing OK
+ risk OK
+ API OK
+ balance OK
+🧱 SYSTEM FLOW (LOCKED)
 Scanner → AI → Strategy → Risk → Telegram → DB → Trade
-```
-
-```text
 Price → TP1 → Trailing → TP2 / SL
-```
 
 👉 Không được phá flow này
 
----
+🚀 SAFE LIVE STRATEGY
+Local → VPS paper → stable → live nhỏ → theo dõi → scale
+🎯 FINAL STATUS
 
-# 🎯 FINAL STATUS
+👉 Production-ready paper trading + safe live system
 
-👉 **Production-ready paper trading system**
-
----
-
-# 📌 QUICK DEPLOY (TÓM TẮT)
-
-```bash
+📌 QUICK DEPLOY (TÓM TẮT)
 cd /opt
 git clone <repo>
 cd repo
 nano .env
 docker compose up -d --build
 docker logs -f binance-bot-app
-```
-
----
-
-# 🧠 NOTE
+🧠 NOTE
 
 File này dùng để:
 
-* giữ context project
-* paste sang chat mới
-* tránh AI phá code
-
----
+giữ context project
+paste sang chat mới
+tránh AI phá code
+hướng dẫn deploy VPS
+hướng dẫn bật live an toàn

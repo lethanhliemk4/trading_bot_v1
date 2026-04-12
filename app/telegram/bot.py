@@ -41,6 +41,17 @@ from app.services.strategy_service import build_strategy
 from app.services.risk_service import build_risk_plan
 from app.services.market_price_service import get_symbol_price
 from app.market.scanner import scan_one
+from app.market.rest_client import get_balance
+from app.services.live_trade_service import (
+    execute_live_market_order,
+    get_open_live_trades,
+    get_latest_live_trades,
+    get_live_trade_stats,
+    sync_open_live_trades,
+    sync_live_trade_order,
+    execute_live_close_market_order,
+    get_live_trade_by_id,
+)
 
 settings = get_settings()
 
@@ -428,11 +439,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/ping - Quick bot ping\n"
         "/version - Show app version\n"
         "/healthcheck - Check Telegram + DB + Binance\n"
-        "/help - Show all commands\n\n"
+        "/help - Show all commands\n"
+        "/balance - Show USDT balance\n\n"
         "/mode off|paper|live - Set trade mode\n"
         "/confirm_live - Confirm LIVE mode\n"
         "/panic - Turn auto trade off immediately\n"
-        "/confirm <action> - Confirm dangerous action\n\n"
+        "/confirm <action> - Confirm dangerous action\n"
+        "/live_test BTCUSDT - Execute one manual live test trade\n"
+        "/live_open - Show open live trades\n"
+        "/live_history - Show latest live trades\n"
+        "/live_stats - Show live trade stats\n"
+        "/live_sync - Sync open live trades from Binance\n"
+        "/live_sync_one 123 - Sync one live trade by ID\n"
+        "/live_close_test 123 - Close one live trade by ID\n"
+        "/live_detail 123 - Show one live trade detail\n\n"
         "/history - Show latest signals\n"
         "/top - Show top scored signals\n"
         "/stats - Show performance stats\n"
@@ -989,6 +1009,357 @@ async def forcealert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Forced alert saved to DB for {symbol}")
 
 
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        usdt = await get_balance("USDT")
+
+        await update.message.reply_text(
+            "💰 ACCOUNT BALANCE\n\n"
+            f"USDT: {usdt:.4f}\n"
+            f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+
+
+async def live_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE testing")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /live_test BTCUSDT")
+        return
+
+    symbol = context.args[0].upper().strip()
+
+    await update.message.reply_text(f"🧪 LIVE TEST {symbol}...")
+
+    result = await scan_one(symbol)
+
+    if not result:
+        await update.message.reply_text("❌ No signal found")
+        return
+
+    result["strategy"] = build_strategy(result)
+    result["risk"] = build_risk_plan(result["strategy"])
+
+    if not result["risk"]:
+        await update.message.reply_text("❌ Risk rejected")
+        return
+
+    res = await execute_live_market_order(
+        result["strategy"],
+        result["risk"],
+    )
+
+    if not res["ok"]:
+        await update.message.reply_text(
+            "❌ LIVE FAILED\n\n"
+            f"Stage: {res.get('stage')}\n"
+            f"Reason: {res.get('reason')}\n"
+            f"Symbol: {res.get('symbol', symbol)}"
+        )
+        return
+
+    await update.message.reply_text(
+        "🚨 LIVE TEST SUCCESS\n\n"
+        f"Symbol: {symbol}\n"
+        f"Stage: {res.get('stage')}\n"
+        f"Qty: {res.get('qty')}\n"
+        f"Qty Str: {res.get('qty_str')}\n"
+        f"Env: {'TESTNET' if res.get('binance_use_testnet') else 'MAINNET'}"
+    )
+
+
+async def live_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    trades = get_open_live_trades()
+
+    if not trades:
+        await update.message.reply_text("📭 No open live trades")
+        return
+
+    msg = "🚨 OPEN LIVE TRADES\n\n"
+    for t in trades:
+        msg += (
+            f"{t.symbol} | {t.side} | {t.environment}\n"
+            f"Entry: {t.entry_price:.6f}\n"
+            f"Req Qty: {t.requested_qty:.8f} | Exec Qty: {t.executed_qty:.8f}\n"
+            f"SL: {t.sl:.6f} | TP2: {t.tp2:.6f}\n"
+            f"Status: {t.status}\n\n"
+        )
+
+    await update.message.reply_text(msg)
+
+
+async def live_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    trades = get_latest_live_trades()
+
+    if not trades:
+        await update.message.reply_text("📭 No live trades yet")
+        return
+
+    msg = "📊 LIVE TRADE HISTORY\n\n"
+    for t in trades:
+        status_icon = "🟢" if t.status == "OPEN" else "🔴"
+        msg += f"{status_icon} {t.symbol} | {t.side} | {t.status}\n"
+        msg += f"Env: {t.environment} | Req: {t.requested_qty:.8f} | Exec: {t.executed_qty:.8f}\n"
+        if t.result_percent is not None:
+            msg += f"Result: {t.result_percent:+.2f}%\n"
+        if t.fail_reason:
+            msg += f"Fail: {t.fail_reason}\n"
+        msg += "\n"
+
+    await update.message.reply_text(msg)
+
+
+async def live_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    s = get_live_trade_stats()
+
+    msg = (
+        "📈 LIVE STATS\n\n"
+        f"Total: {s['total']}\n"
+        f"Open: {s['open']}\n"
+        f"Closed: {s['closed']}\n"
+        f"Failed: {s['failed']}\n\n"
+        f"Wins: {s['wins']}\n"
+        f"Loses: {s['loses']}\n"
+        f"Draws: {s['draws']}\n"
+        f"Winrate: {s['winrate']:.2f}%\n\n"
+        f"Avg Result: {s['avg_result']:+.2f}\n"
+        f"Best: {s['best_result']:+.2f}\n"
+        f"Worst: {s['worst_result']:+.2f}\n"
+        f"TP1 Hits: {s['tp1_hits']}"
+    )
+
+    await update.message.reply_text(msg)
+
+
+async def live_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE sync")
+        return
+
+    await update.message.reply_text("🔄 Syncing open live trades from Binance...")
+
+    try:
+        synced_ids = await sync_open_live_trades()
+        count = len(synced_ids or [])
+        await update.message.reply_text(
+            "✅ LIVE SYNC DONE\n\n"
+            f"Updated trades: {count}\n"
+            f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            "❌ LIVE SYNC FAILED\n\n"
+            f"Reason: {str(e)}"
+        )
+
+
+async def live_sync_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE sync")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /live_sync_one 123")
+        return
+
+    try:
+        trade_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ trade_id must be an integer")
+        return
+
+    await update.message.reply_text(f"🔄 Syncing live trade #{trade_id}...")
+
+    try:
+        trade = await sync_live_trade_order(trade_id)
+        if not trade:
+            await update.message.reply_text(f"❌ Live trade #{trade_id} not found")
+            return
+
+        await update.message.reply_text(
+            "✅ LIVE SYNC ONE DONE\n\n"
+            f"Trade ID: {trade.id}\n"
+            f"Symbol: {trade.symbol}\n"
+            f"Status: {trade.status}\n"
+            f"Entry Order Status: {trade.entry_order_status}\n"
+            f"Requested Qty: {trade.requested_qty:.8f}\n"
+            f"Executed Qty: {trade.executed_qty:.8f}\n"
+            f"Avg Fill Price: {(trade.avg_fill_price or 0.0):.8f}\n"
+            f"Env: {trade.environment}"
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            "❌ LIVE SYNC ONE FAILED\n\n"
+            f"Reason: {str(e)}"
+        )
+
+
+async def live_close_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE close")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /live_close_test 123")
+        return
+
+    try:
+        trade_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ trade_id must be an integer")
+        return
+
+    await update.message.reply_text(f"🚨 Closing live trade #{trade_id}...")
+
+    try:
+        result = await execute_live_close_market_order(trade_id)
+
+        if not result.get("ok"):
+            await update.message.reply_text(
+                "❌ LIVE CLOSE FAILED\n\n"
+                f"Trade ID: {trade_id}\n"
+                f"Stage: {result.get('stage')}\n"
+                f"Reason: {result.get('reason')}\n"
+                f"Symbol: {result.get('symbol', '-')}"
+            )
+            return
+
+        await update.message.reply_text(
+            "✅ LIVE CLOSE SUCCESS\n\n"
+            f"Trade ID: {result.get('trade_id')}\n"
+            f"Symbol: {result.get('symbol')}\n"
+            f"Exit Side: {result.get('exit_side')}\n"
+            f"Qty: {result.get('qty')}\n"
+            f"Qty Str: {result.get('qty_str')}\n"
+            f"Executed Qty: {result.get('executed_qty')}\n"
+            f"Exit Price: {result.get('exit_price'):.8f}\n"
+            f"Result: {result.get('result_percent'):+.2f}%\n"
+            f"PnL: {result.get('realized_pnl'):+.8f}\n"
+            f"Env: {'TESTNET' if result.get('binance_use_testnet') else 'MAINNET'}"
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            "❌ LIVE CLOSE FAILED\n\n"
+            f"Reason: {str(e)}"
+        )
+
+
+async def live_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /live_detail 123")
+        return
+
+    try:
+        trade_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ trade_id must be an integer")
+        return
+
+    trade = get_live_trade_by_id(trade_id)
+    if not trade:
+        await update.message.reply_text(f"❌ Live trade #{trade_id} not found")
+        return
+
+    msg = (
+        "📌 LIVE TRADE DETAIL\n\n"
+        f"Trade ID: {trade.id}\n"
+        f"Symbol: {trade.symbol}\n"
+        f"Side: {trade.side}\n"
+        f"Status: {trade.status}\n"
+        f"Environment: {trade.environment}\n"
+        f"Exchange: {trade.exchange}\n\n"
+        f"Entry Price: {trade.entry_price:.8f}\n"
+        f"Avg Fill Price: {(trade.avg_fill_price or 0.0):.8f}\n"
+        f"SL: {trade.sl:.8f}\n"
+        f"TP1: {trade.tp1:.8f}\n"
+        f"TP2: {trade.tp2:.8f}\n"
+        f"RR: {trade.rr:.4f}\n\n"
+        f"Risk Amount: {trade.risk_amount:.8f}\n"
+        f"Position Size: {trade.position_size:.8f}\n"
+        f"Notional: {trade.notional:.8f}\n"
+        f"Requested Qty: {trade.requested_qty:.8f}\n"
+        f"Executed Qty: {trade.executed_qty:.8f}\n"
+        f"Remaining Qty: {trade.remaining_qty:.8f}\n\n"
+        f"Entry Order ID: {trade.entry_order_id}\n"
+        f"Entry Client Order ID: {trade.entry_client_order_id}\n"
+        f"Entry Order Status: {trade.entry_order_status}\n"
+        f"Exit Order ID: {trade.exit_order_id}\n"
+        f"Exit Order Status: {trade.exit_order_status}\n\n"
+        f"TP1 Hit: {trade.tp1_hit}\n"
+        f"Trailing Active: {trade.trailing_active}\n"
+        f"Trailing SL: {(trade.trailing_sl or 0.0):.8f}\n"
+        f"Realized PnL: {(trade.realized_pnl or 0.0):+.8f}\n"
+        f"Result %: {(trade.result_percent or 0.0):+.2f}%\n"
+        f"Exit Price: {(trade.exit_price or 0.0):.8f}\n"
+        f"Close Reason: {trade.close_reason}\n"
+        f"Fail Reason: {trade.fail_reason}\n\n"
+        f"Created At: {trade.created_at}\n"
+        f"Opened At: {trade.opened_at}\n"
+        f"Closed At: {trade.closed_at}\n"
+        f"Last Synced At: {trade.last_synced_at}"
+    )
+
+    await update.message.reply_text(msg)
+
+
 async def send_message(app, text: str):
     for user_id in ALLOWED_IDS:
         await app.bot.send_message(chat_id=user_id, text=text)
@@ -1032,5 +1403,14 @@ def create_bot():
     app.add_handler(CommandHandler("scanall", scanall))
     app.add_handler(CommandHandler("aitest", aitest))
     app.add_handler(CommandHandler("forcealert", forcealert))
+    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("live_test", live_test))
+    app.add_handler(CommandHandler("live_open", live_open))
+    app.add_handler(CommandHandler("live_history", live_history))
+    app.add_handler(CommandHandler("live_stats", live_stats))
+    app.add_handler(CommandHandler("live_sync", live_sync))
+    app.add_handler(CommandHandler("live_sync_one", live_sync_one))
+    app.add_handler(CommandHandler("live_close_test", live_close_test))
+    app.add_handler(CommandHandler("live_detail", live_detail))
 
     return app

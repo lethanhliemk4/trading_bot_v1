@@ -16,6 +16,10 @@
 * Multi trades running
 * Env toggle (`APP_MODE=test / prod`)
 * Scanner + AI + Risk full flow
+* Duplicate guard
+* Daily loss breaker
+* Risk limit per trade
+* Live trading engine (SAFE MODE)
 
 👉 **System is STABLE → CORE LOGIC MUST BE FROZEN**
 
@@ -100,117 +104,157 @@ Khi sửa:
 
 ---
 
-# 🚀 LIVE PHASE RULES (CỰC QUAN TRỌNG)
+## 6. 🚨 LIVE RULE (BỔ SUNG)
 
-## ❗ BEFORE ENABLE LIVE
-
-Phải đảm bảo:
-
-* [ ] Paper trading stable nhiều giờ
-* [ ] Không có bug TP1 / trailing
-* [ ] Risk hoạt động đúng
-* [ ] Daily loss breaker OK
-
----
-
-## ❗ LIVE SAFETY LAYER (BẮT BUỘC)
-
-Khi làm LIVE:
-
-### 1. Start SMALL
-
-```text
-RISK_CAPITAL_USDT = rất nhỏ (10–50)
-```
-
-### 2. Limit trades
-
-```text
-MAX_OPEN_TRADES = 1–2
-```
-
-### 3. Confirm execution
-
-* Có thể thêm confirm Telegram trước khi đặt lệnh
-
-### 4. Kill switch ALWAYS READY
-
-```env
-KILL_SWITCH=true
-```
-
----
-
-## ❗ NEVER DO THIS
-
-* ❌ Không bật LIVE ngay với full capital
-* ❌ Không sửa logic khi đang chạy live
+* ❌ Không merge logic paper + live
+* ❌ Không sửa logic khi đang chạy
 * ❌ Không deploy code chưa test
+* ❌ Không bật live full vốn
+* ❌ Không bypass risk layer
+* ❌ Không bypass duplicate guard
+* ❌ Không trade khi chưa confirm
+* ✅ Live là execution layer riêng
 
 ---
 
-# 🧱 SYSTEM ARCHITECTURE (LOCKED)
+# 🧠 SYSTEM DESIGN (LOCKED)
 
-## Flow chính
+```text
+Paper = simulation engine
+Live = execution layer
 
-### Scanner Loop
+👉 Không được trộn logic
+
+🧱 SYSTEM ARCHITECTURE (LOCKED)
+Flow chính
+Scanner Loop
 
 scan → AI → strategy → risk → Telegram → DB → open trade
 
-### Paper Trade Loop
+Paper Trade Loop
 
 price → TP1 → partial → trailing → TP2/SL
 
-### Performance Loop
+Performance Loop
 
-5m → 15m → stats
+5m → 15m → stats → DB
+
+Live Execution Flow (NEW)
+
+signal → strategy → risk → validation → Binance order → sync → manage position
 
 👉 Flow này đã VERIFIED → KHÔNG ĐƯỢC PHÁ
 
----
-
-# 🔧 SAFE CHANGES ALLOWED
+🔧 SAFE CHANGES ALLOWED
 
 Có thể làm:
 
-* thêm logging
-* cải thiện message Telegram
-* chỉnh config `.env`
-* viết README
-* thêm dashboard
+thêm logging
+cải thiện message Telegram
+chỉnh config .env
+viết README
+thêm dashboard
+thêm debug tools
+thêm sync tools
 
 Không được làm:
 
-* rewrite trading logic
-* thay đổi TP/SL behavior
-
----
-
-# 📌 CURRENT CONFIG (REFERENCE)
-
-```env
+rewrite trading logic
+thay đổi TP/SL behavior
+thay đổi flow hệ thống
+📊 RISK SYSTEM CONTEXT
+Risk theo % vốn
+Position size = risk_amount / stop_distance
+Max open trades
+Max notional per trade
+Daily loss breaker
+Kill switch
+Duplicate trade guard
+📌 CURRENT CONFIG (REFERENCE)
 APP_MODE=test
 APP_ENV=dev
-```
+🚀 LIVE PHASE RULES (CỰC QUAN TRỌNG)
+❗ BEFORE ENABLE LIVE
 
----
+Phải đảm bảo:
 
-# 🎯 NEXT STEP
+ Paper trading stable nhiều giờ
+ Không có bug TP1 / trailing
+ Risk hoạt động đúng
+ Daily loss breaker OK
+ Duplicate guard OK
+ Sync hoạt động đúng
+🔐 LIVE SAFETY LAYER (BẮT BUỘC)
+
+Bot chỉ trade khi:
+
+ENABLE_LIVE_TRADING=true
+LIVE_EXECUTION_ENABLED=true
+LIVE_CONFIRM_REAL_ORDERS=true
+APP_ENV=prod
+API key hợp lệ
+API secret hợp lệ
+Balance đủ
+Notional hợp lệ
+❗ LIVE SAFETY STRATEGY
+1. Start SMALL
+RISK_CAPITAL_USDT = 10–50
+2. Limit trades
+MAX_OPEN_TRADES = 1–2
+3. Confirm execution
+Có thể cần Telegram confirm trước khi đặt lệnh
+4. Kill switch ALWAYS READY
+KILL_SWITCH=true
+❗ NEVER DO THIS
+❌ Không bật LIVE ngay với full capital
+❌ Không sửa logic khi đang chạy live
+❌ Không deploy code chưa test
+📱 TELEGRAM CONTROL CONTEXT
+
+Bot điều khiển qua Telegram:
+
+Core commands
+/mode paper
+/mode live
+/panic
+Debug commands
+/scan
+/forcealert
+/aitest
+Live commands
+/live_test
+/live_open
+/live_sync
+/live_detail
+🧪 DEBUG CONTEXT
+Paper Debug
+check TP1 hit
+check trailing update
+check SL / TP2 close
+Live Debug
+check order placed
+check fill price
+check sync data
+check position state
+📊 LIVE CHECKLIST (FINAL)
+ paper stable
+ TP1 OK
+ trailing OK
+ risk OK
+ API OK
+ balance OK
+ sync OK
+ detail OK
+🎯 NEXT STEP
 
 👉 Move to LIVE PHASE (SAFE MODE)
 
----
-
-# 🧠 NOTE
+🧠 NOTE
 
 File này dùng để:
 
-* paste vào chat mới
-* giữ context project
-* đảm bảo AI không phá code
-
----
-
-# ✅ STATUS
-
-**Production-ready paper trading system**
+paste vào chat mới
+giữ context project
+đảm bảo AI không phá code
+hỗ trợ debug system
+hỗ trợ triển khai live an toàn

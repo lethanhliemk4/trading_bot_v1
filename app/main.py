@@ -33,6 +33,15 @@ from app.services.paper_trade_service import (
     update_paper_trade_trailing_sl,
     is_daily_loss_limit_hit,
 )
+from app.services.live_trade_service import (
+    execute_live_market_order,
+    get_open_live_trades,
+    mark_live_trade_tp1_hit,
+    activate_live_trade_trailing,
+    update_live_trade_trailing_sl,
+    close_live_trade,
+    sync_open_live_trades,
+)
 
 settings = get_settings()
 configure_logging()
@@ -43,6 +52,7 @@ market_task = None
 scanner_task = None
 performance_task = None
 paper_trade_task = None
+live_trade_task = None
 
 last_alerts = {}
 daily_loss_alert_sent = False
@@ -157,6 +167,55 @@ def format_daily_loss_breaker_message(today_pnl: float) -> str:
     )
 
 
+def format_live_open_message(symbol: str, side: str, qty: float) -> str:
+    return (
+        "🚨 LIVE TRADE EXECUTED\n\n"
+        f"{symbol} | {side}\n"
+        f"Qty: {qty:.8f}\n"
+        f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+    )
+
+
+def format_live_fail_message(symbol: str, stage: str, reason: str) -> str:
+    return (
+        "❌ LIVE TRADE FAILED\n\n"
+        f"{symbol}\n"
+        f"Stage: {stage}\n"
+        f"Reason: {reason}\n"
+        f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+    )
+
+
+def format_live_tp1_message(symbol: str, price: float) -> str:
+    return (
+        "🟡 LIVE TRADE TP1 HIT\n\n"
+        f"{symbol}\n"
+        f"Price: {price:.6f}\n"
+        "Trailing activated\n"
+        f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+    )
+
+
+def format_live_trailing_message(symbol: str, trailing_sl: float) -> str:
+    return (
+        "🛡 LIVE TRADE TRAILING UPDATED\n\n"
+        f"{symbol}\n"
+        f"Trailing SL: {trailing_sl:.6f}\n"
+        f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+    )
+
+
+def format_live_close_message(symbol: str, reason: str, exit_price: float, result_percent: float) -> str:
+    return (
+        "🚨 LIVE TRADE CLOSED\n\n"
+        f"{symbol}\n"
+        f"Reason: {reason}\n"
+        f"Exit: {exit_price:.6f}\n"
+        f"Result: {result_percent:+.2f}%\n"
+        f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
+    )
+
+
 async def scanner_loop():
     global telegram_app, last_alerts
 
@@ -221,14 +280,17 @@ async def scanner_loop():
                 await send_message(telegram_app, msg)
 
                 mode = get_trade_mode()
-                open_trades = get_open_paper_trades()
-                open_symbols = {trade.symbol.upper() for trade in open_trades}
+                open_paper_trades = get_open_paper_trades()
+                open_paper_symbols = {trade.symbol.upper() for trade in open_paper_trades}
+
+                open_live_trades = get_open_live_trades(limit=500)
+                open_live_symbols = {trade.symbol.upper() for trade in open_live_trades}
 
                 for coin in new_alerts:
                     save_signal(coin)
 
                     if mode["trade_mode"] == "PAPER" and mode["auto_trade_enabled"]:
-                        if coin["symbol"].upper() in open_symbols:
+                        if coin["symbol"].upper() in open_paper_symbols:
                             logger.info("Skip duplicate paper trade for %s", coin["symbol"])
                             continue
 
@@ -249,7 +311,7 @@ async def scanner_loop():
                             logger.warning("Create paper trade failed %s", coin["symbol"])
                             continue
 
-                        open_symbols.add(coin["symbol"].upper())
+                        open_paper_symbols.add(coin["symbol"].upper())
 
                         await send_message(
                             telegram_app,
@@ -261,6 +323,59 @@ async def scanner_loop():
                                 trade.tp2,
                             ),
                         )
+
+                    elif mode["trade_mode"] == "LIVE" and mode["auto_trade_enabled"]:
+                        if coin["symbol"].upper() in open_live_symbols:
+                            logger.info("Skip duplicate live trade for %s", coin["symbol"])
+                            continue
+
+                        try:
+                            logger.info("🚨 LIVE TRADE TRIGGER %s", coin["symbol"])
+
+                            result = await execute_live_market_order(
+                                coin["strategy"],
+                                coin["risk"],
+                            )
+
+                            if not result["ok"]:
+                                logger.warning(
+                                    "LIVE TRADE FAILED %s | stage=%s | reason=%s",
+                                    coin["symbol"],
+                                    result.get("stage"),
+                                    result.get("reason"),
+                                )
+
+                                await send_message(
+                                    telegram_app,
+                                    format_live_fail_message(
+                                        coin["symbol"],
+                                        str(result.get("stage", "unknown")),
+                                        str(result.get("reason", "unknown error")),
+                                    ),
+                                )
+                                continue
+
+                            open_live_symbols.add(coin["symbol"].upper())
+
+                            await send_message(
+                                telegram_app,
+                                format_live_open_message(
+                                    coin["symbol"],
+                                    coin["strategy"]["side"],
+                                    float(result.get("qty", 0.0)),
+                                ),
+                            )
+
+                        except Exception as e:
+                            logger.exception("LIVE TRADE ERROR %s: %s", coin["symbol"], e)
+                            await send_message(
+                                telegram_app,
+                                format_live_fail_message(
+                                    coin["symbol"],
+                                    "exception",
+                                    str(e),
+                                ),
+                            )
 
                 logger.info("✅ Sent %s alerts to Telegram + DB", len(new_alerts))
 
@@ -487,6 +602,199 @@ async def paper_trade_loop():
         await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
 
 
+async def live_trade_loop():
+    global telegram_app
+
+    while True:
+        try:
+            if settings.KILL_SWITCH:
+                logger.warning("KILL_SWITCH active, live trade loop paused")
+                await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+                continue
+
+            mode = get_trade_mode()
+            if mode["trade_mode"] != "LIVE" or not mode["auto_trade_enabled"]:
+                await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+                continue
+
+            try:
+                synced_ids = await sync_open_live_trades()
+                if synced_ids:
+                    logger.info("Synced %s open live trades from Binance", len(synced_ids))
+            except Exception as e:
+                logger.exception("Live trade sync error: %s", e)
+
+            trades = get_open_live_trades()
+
+            for trade in trades:
+                price = await get_symbol_price(trade.symbol)
+                if not price:
+                    continue
+
+                if trade.entry_price <= 0:
+                    logger.warning(
+                        "Skip invalid live entry_price | trade_id=%s | entry=%s",
+                        trade.id,
+                        trade.entry_price,
+                    )
+                    continue
+
+                if trade.side == "LONG":
+                    result_percent = ((price - trade.entry_price) / trade.entry_price) * 100
+
+                    if abs(result_percent) > 100:
+                        logger.warning(
+                            "Skip abnormal LIVE LONG result | trade_id=%s | entry=%s | price=%s | result=%s",
+                            trade.id,
+                            trade.entry_price,
+                            price,
+                            result_percent,
+                        )
+                        continue
+
+                    if not trade.tp1_hit and price >= trade.tp1:
+                        marked = mark_live_trade_tp1_hit(trade.id)
+                        if marked:
+                            activated = activate_live_trade_trailing(trade.id, trade.entry_price)
+                            if activated:
+                                trade.tp1_hit = marked.tp1_hit
+                                trade.trailing_active = activated.trailing_active
+                                trade.trailing_sl = activated.trailing_sl
+
+                            await send_message(
+                                telegram_app,
+                                format_live_tp1_message(
+                                    trade.symbol,
+                                    price,
+                                ),
+                            )
+                        continue
+
+                    if trade.trailing_active:
+                        current_trailing = trade.trailing_sl if trade.trailing_sl is not None else trade.entry_price
+                        new_trailing_sl = max(current_trailing, price * 0.995)
+
+                        if new_trailing_sl > current_trailing:
+                            updated = update_live_trade_trailing_sl(trade.id, new_trailing_sl)
+                            if updated:
+                                trade.trailing_sl = updated.trailing_sl
+                                await send_message(
+                                    telegram_app,
+                                    format_live_trailing_message(trade.symbol, updated.trailing_sl),
+                                )
+
+                        effective_sl = trade.trailing_sl if trade.trailing_sl is not None else trade.entry_price
+                    else:
+                        effective_sl = trade.sl
+
+                    if price <= effective_sl:
+                        reason = "TSL" if trade.trailing_active else "SL"
+                        closed = close_live_trade(trade.id, price, result_percent, reason)
+                        if closed:
+                            await send_message(
+                                telegram_app,
+                                format_live_close_message(
+                                    trade.symbol,
+                                    reason,
+                                    price,
+                                    result_percent,
+                                ),
+                            )
+
+                    elif price >= trade.tp2:
+                        closed = close_live_trade(trade.id, price, result_percent, "TP2")
+                        if closed:
+                            await send_message(
+                                telegram_app,
+                                format_live_close_message(
+                                    trade.symbol,
+                                    "TP2",
+                                    price,
+                                    result_percent,
+                                ),
+                            )
+
+                else:
+                    result_percent = ((trade.entry_price - price) / trade.entry_price) * 100
+
+                    if abs(result_percent) > 100:
+                        logger.warning(
+                            "Skip abnormal LIVE SHORT result | trade_id=%s | entry=%s | price=%s | result=%s",
+                            trade.id,
+                            trade.entry_price,
+                            price,
+                            result_percent,
+                        )
+                        continue
+
+                    if not trade.tp1_hit and price <= trade.tp1:
+                        marked = mark_live_trade_tp1_hit(trade.id)
+                        if marked:
+                            activated = activate_live_trade_trailing(trade.id, trade.entry_price)
+                            if activated:
+                                trade.tp1_hit = marked.tp1_hit
+                                trade.trailing_active = activated.trailing_active
+                                trade.trailing_sl = activated.trailing_sl
+
+                            await send_message(
+                                telegram_app,
+                                format_live_tp1_message(
+                                    trade.symbol,
+                                    price,
+                                ),
+                            )
+                        continue
+
+                    if trade.trailing_active:
+                        current_trailing = trade.trailing_sl if trade.trailing_sl is not None else trade.entry_price
+                        new_trailing_sl = min(current_trailing, price * 1.005)
+
+                        if new_trailing_sl < current_trailing:
+                            updated = update_live_trade_trailing_sl(trade.id, new_trailing_sl)
+                            if updated:
+                                trade.trailing_sl = updated.trailing_sl
+                                await send_message(
+                                    telegram_app,
+                                    format_live_trailing_message(trade.symbol, updated.trailing_sl),
+                                )
+
+                        effective_sl = trade.trailing_sl if trade.trailing_sl is not None else trade.entry_price
+                    else:
+                        effective_sl = trade.sl
+
+                    if price >= effective_sl:
+                        reason = "TSL" if trade.trailing_active else "SL"
+                        closed = close_live_trade(trade.id, price, result_percent, reason)
+                        if closed:
+                            await send_message(
+                                telegram_app,
+                                format_live_close_message(
+                                    trade.symbol,
+                                    reason,
+                                    price,
+                                    result_percent,
+                                ),
+                            )
+
+                    elif price <= trade.tp2:
+                        closed = close_live_trade(trade.id, price, result_percent, "TP2")
+                        if closed:
+                            await send_message(
+                                telegram_app,
+                                format_live_close_message(
+                                    trade.symbol,
+                                    "TP2",
+                                    price,
+                                    result_percent,
+                                ),
+                            )
+
+        except Exception as e:
+            logger.exception("Live trade loop error: %s", e)
+
+        await asyncio.sleep(settings.PAPER_TRADE_CHECK_INTERVAL_SECONDS)
+
+
 async def performance_loop():
     global telegram_app
 
@@ -563,7 +871,7 @@ async def performance_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global telegram_app, market_task, scanner_task, performance_task, paper_trade_task
+    global telegram_app, market_task, scanner_task, performance_task, paper_trade_task, live_trade_task
 
     logger.info("Starting app | env=%s | mode=%s", settings.APP_ENV, settings.APP_MODE)
 
@@ -579,12 +887,13 @@ async def lifespan(app: FastAPI):
     scanner_task = asyncio.create_task(scanner_loop())
     performance_task = asyncio.create_task(performance_loop())
     paper_trade_task = asyncio.create_task(paper_trade_loop())
+    live_trade_task = asyncio.create_task(live_trade_loop())
 
     yield
 
     logger.info("Shutting down app")
 
-    for task in [market_task, scanner_task, performance_task, paper_trade_task]:
+    for task in [market_task, scanner_task, performance_task, paper_trade_task, live_trade_task]:
         if task:
             task.cancel()
 

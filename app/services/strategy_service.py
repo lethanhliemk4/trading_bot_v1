@@ -1,8 +1,8 @@
 def build_strategy(signal: dict) -> dict:
     symbol = str(signal.get("symbol", "")).upper().strip()
-    entry = float(signal["entry_price"])
+    entry = float(signal.get("entry_price", 0.0) or 0.0)
     side = str(signal.get("side", "LONG")).upper().strip()
-    atr = float(signal.get("atr", 0.0))
+    atr = float(signal.get("atr", 0.0) or 0.0)
 
     if side not in {"LONG", "SHORT"}:
         side = "LONG"
@@ -28,8 +28,11 @@ def build_strategy(signal: dict) -> dict:
         tp2 = entry + tp2_distance
 
     risk = abs(entry - sl)
-    reward = abs(tp2 - entry)
-    rr = reward / risk if risk != 0 else 0.0
+    reward_tp1 = abs(tp1 - entry)
+    reward_tp2 = abs(tp2 - entry)
+
+    rr_tp1 = reward_tp1 / risk if risk != 0 else 0.0
+    rr_tp2 = reward_tp2 / risk if risk != 0 else 0.0
 
     return {
         "symbol": symbol,
@@ -38,6 +41,15 @@ def build_strategy(signal: dict) -> dict:
         "sl": sl,
         "tp1": tp1,
         "tp2": tp2,
-        "rr": rr,
+        "rr": rr_tp2,
+        "rr_tp1": rr_tp1,
+        "rr_tp2": rr_tp2,
         "atr": atr,
+        "sl_distance": sl_distance,
+        "tp1_distance": tp1_distance,
+        "tp2_distance": tp2_distance,
+        "risk_per_unit": risk,
+        "reward_tp1": reward_tp1,
+        "reward_tp2": reward_tp2,
+        "is_valid": risk > 0 and entry > 0,
     }
