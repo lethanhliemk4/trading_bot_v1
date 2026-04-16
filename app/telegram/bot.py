@@ -38,7 +38,11 @@ from app.services.paper_trade_service import (
     is_daily_loss_limit_hit,
 )
 from app.services.strategy_service import build_strategy
-from app.services.risk_service import build_risk_plan
+from app.services.risk_service import (
+    build_risk_plan,
+    get_today_live_realized_pnl,
+    get_live_risk_summary,
+)
 from app.services.market_price_service import get_symbol_price
 from app.market.scanner import scan_one
 from app.market.rest_client import get_balance
@@ -51,6 +55,8 @@ from app.services.live_trade_service import (
     sync_live_trade_order,
     execute_live_close_market_order,
     get_live_trade_by_id,
+    get_live_account_snapshot,
+    is_live_execution_armed,
 )
 
 settings = get_settings()
@@ -114,6 +120,28 @@ def pop_valid_live_confirmation(user_id: int) -> bool:
 
     PENDING_LIVE_CONFIRMATIONS.pop(user_id, None)
     return True
+
+
+def safe_get_live_execution_state() -> tuple[bool, str | None]:
+    try:
+        live_check = is_live_execution_armed()
+
+        if isinstance(live_check, tuple):
+            if len(live_check) >= 2:
+                return bool(live_check[0]), live_check[1]
+            if len(live_check) == 1:
+                return bool(live_check[0]), None
+            return False, "invalid live execution state"
+
+        if isinstance(live_check, bool):
+            return live_check, None
+
+        if live_check is None:
+            return False, None
+
+        return bool(live_check), None
+    except Exception as e:
+        return False, f"live guard error: {e}"
 
 
 def format_scan_result(signal: dict) -> str:
@@ -246,6 +274,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     mode_state = get_trade_mode()
+    live_armed, live_reason = safe_get_live_execution_state()
 
     await update.message.reply_text(
         "✅ Bot status: RUNNING\n"
@@ -253,7 +282,9 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Auto trade: {'ON' if mode_state['auto_trade_enabled'] else 'OFF'}\n"
         f"App env: {APP_ENV}\n"
         f"App mode: {settings.APP_MODE}\n"
-        f"KILL_SWITCH: {settings.KILL_SWITCH}"
+        f"KILL_SWITCH: {settings.KILL_SWITCH}\n"
+        f"LIVE Armed: {'YES' if live_armed else 'NO'}\n"
+        f"LIVE Reason: {live_reason or 'OK'}"
     )
 
 
@@ -440,7 +471,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/version - Show app version\n"
         "/healthcheck - Check Telegram + DB + Binance\n"
         "/help - Show all commands\n"
-        "/balance - Show USDT balance\n\n"
+        "/balance - Show USDT balance\n"
+        "/runtime_status - Show runtime guard settings\n\n"
         "/mode off|paper|live - Set trade mode\n"
         "/confirm_live - Confirm LIVE mode\n"
         "/panic - Turn auto trade off immediately\n"
@@ -449,10 +481,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/live_open - Show open live trades\n"
         "/live_history - Show latest live trades\n"
         "/live_stats - Show live trade stats\n"
+        "/live_summary - Show live overview\n"
+        "/live_pnl_today - Show today live PnL\n"
         "/live_sync - Sync open live trades from Binance\n"
         "/live_sync_one 123 - Sync one live trade by ID\n"
         "/live_close_test 123 - Close one live trade by ID\n"
-        "/live_detail 123 - Show one live trade detail\n\n"
+        "/live_detail 123 - Show one live trade detail\n"
+        "/live_account - Show live account snapshot\n"
+        "/live_guard - Show live safety guard status\n\n"
         "/history - Show latest signals\n"
         "/top - Show top scored signals\n"
         "/stats - Show performance stats\n"
@@ -1028,6 +1064,49 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
 
+async def runtime_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        mode_state = get_trade_mode()
+        live_armed, live_reason = safe_get_live_execution_state()
+        live_risk = get_live_risk_summary()
+
+        live_trade_cooldown_seconds = getattr(settings, "LIVE_TRADE_COOLDOWN_SECONDS", 60)
+        heartbeat_interval_seconds = getattr(settings, "HEARTBEAT_INTERVAL_SECONDS", 300)
+        watchdog_interval_seconds = getattr(settings, "WATCHDOG_INTERVAL_SECONDS", 60)
+        loop_stale_threshold_seconds = getattr(settings, "LOOP_STALE_THRESHOLD_SECONDS", 600)
+
+        msg = (
+            "🧰 RUNTIME STATUS\n\n"
+            f"Trade Mode: {mode_state['trade_mode']}\n"
+            f"Auto Trade: {'ON' if mode_state['auto_trade_enabled'] else 'OFF'}\n"
+            f"APP_ENV: {settings.APP_ENV}\n"
+            f"APP_MODE: {settings.APP_MODE}\n"
+            f"KILL_SWITCH: {settings.KILL_SWITCH}\n\n"
+            f"LIVE Armed: {'YES' if live_armed else 'NO'}\n"
+            f"LIVE Reason: {live_reason or 'OK'}\n"
+            f"BINANCE Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}\n\n"
+            f"Live Cooldown: {live_trade_cooldown_seconds}s\n"
+            f"Heartbeat: {heartbeat_interval_seconds}s\n"
+            f"Watchdog: {watchdog_interval_seconds}s\n"
+            f"Stale Threshold: {loop_stale_threshold_seconds}s\n\n"
+            f"Live Max Open Trades: {live_risk['max_open_trades']}\n"
+            f"Live Trades Today: {live_risk['today_trade_count']} / {live_risk['max_trades_per_day']}\n"
+            f"Live Max Notional: {live_risk['max_notional_per_trade']:.2f}\n"
+            f"Live Daily Loss Limit: -{abs(live_risk['daily_loss_limit_usdt']):.2f}\n"
+            f"Live Daily Loss Hit: {'YES' if live_risk['daily_loss_limit_hit'] else 'NO'}"
+        )
+
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"❌ RUNTIME STATUS ERROR: {e}")
+
+
 async def live_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -1160,6 +1239,125 @@ async def live_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Best: {s['best_result']:+.2f}\n"
         f"Worst: {s['worst_result']:+.2f}\n"
         f"TP1 Hits: {s['tp1_hits']}"
+    )
+
+    await update.message.reply_text(msg)
+
+
+async def live_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        snapshot = await get_live_account_snapshot()
+        stats = get_live_trade_stats()
+        risk = get_live_risk_summary()
+
+        msg = (
+            "📊 LIVE SUMMARY\n\n"
+            f"💰 Free USDT: {snapshot['free_usdt']:.2f}\n"
+            f"🌐 Env: {'TESTNET' if snapshot['binance_use_testnet'] else 'MAINNET'}\n\n"
+            f"📈 Trades: {stats['total']} | Open: {stats['open']} | Closed: {stats['closed']}\n"
+            f"⚠️ Failed: {stats['failed']}\n"
+            f"🏆 Winrate: {stats['winrate']:.2f}%\n\n"
+            f"💸 Today PnL: {risk['today_realized_pnl']:+.2f} USDT\n"
+            f"🚫 Daily Limit: -{abs(risk['daily_loss_limit_usdt']):.2f} USDT\n"
+            f"🛑 Limit Hit: {'YES' if risk['daily_loss_limit_hit'] else 'NO'}\n\n"
+            f"📦 Max Open Trades: {risk['max_open_trades']}\n"
+            f"📊 Trades Today: {risk['today_trade_count']} / {risk['max_trades_per_day']}\n"
+            f"💵 Max Notional: {risk['max_notional_per_trade']:.2f}"
+        )
+
+        await update.message.reply_text(msg)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ LIVE SUMMARY ERROR: {e}")
+
+
+async def live_pnl_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        pnl = get_today_live_realized_pnl()
+        risk = get_live_risk_summary()
+
+        msg = (
+            "📅 LIVE TODAY\n\n"
+            f"💰 PnL: {pnl:+.2f} USDT\n"
+            f"🚫 Limit: -{abs(risk['daily_loss_limit_usdt']):.2f}\n\n"
+        )
+
+        if risk["daily_loss_limit_hit"]:
+            msg += "🛑 CIRCUIT BREAKER TRIGGERED"
+        else:
+            msg += "✅ SAFE"
+
+        await update.message.reply_text(msg)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ ERROR: {e}")
+
+
+async def live_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE account")
+        return
+
+    await update.message.reply_text("📡 Fetching live account snapshot...")
+
+    try:
+        data = await get_live_account_snapshot()
+
+        msg = (
+            "💰 LIVE ACCOUNT\n\n"
+            f"Free USDT: {data['free_usdt']:.4f}\n"
+            f"Env: {'TESTNET' if data['binance_use_testnet'] else 'MAINNET'}\n"
+            f"REST: {data['rest_base_url']}\n"
+            f"WS: {data['ws_base_url']}\n\n"
+            f"Live Armed: {'YES' if data['live_execution_armed'] else 'NO'}"
+        )
+
+        await update.message.reply_text(msg)
+
+    except Exception as e:
+        await update.message.reply_text(
+            "❌ LIVE ACCOUNT FAILED\n\n"
+            f"Reason: {str(e)}"
+        )
+
+
+async def live_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    live_armed, live_reason = safe_get_live_execution_state()
+
+    msg = (
+        "🛡 LIVE GUARD STATUS\n\n"
+        f"KILL_SWITCH: {settings.KILL_SWITCH}\n"
+        f"ENABLE_LIVE_TRADING: {settings.ENABLE_LIVE_TRADING}\n"
+        f"LIVE_EXECUTION_ENABLED: {settings.LIVE_EXECUTION_ENABLED}\n"
+        f"LIVE_CONFIRM_REAL_ORDERS: {settings.LIVE_CONFIRM_REAL_ORDERS}\n"
+        f"REQUIRE_PROD_FOR_LIVE: {settings.REQUIRE_PROD_FOR_LIVE}\n"
+        f"APP_ENV: {settings.APP_ENV}\n\n"
+        f"ARMED: {'YES' if live_armed else 'NO'}\n"
+        f"REASON: {live_reason or 'OK'}"
     )
 
     await update.message.reply_text(msg)
@@ -1404,10 +1602,15 @@ def create_bot():
     app.add_handler(CommandHandler("aitest", aitest))
     app.add_handler(CommandHandler("forcealert", forcealert))
     app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("runtime_status", runtime_status))
     app.add_handler(CommandHandler("live_test", live_test))
     app.add_handler(CommandHandler("live_open", live_open))
     app.add_handler(CommandHandler("live_history", live_history))
     app.add_handler(CommandHandler("live_stats", live_stats))
+    app.add_handler(CommandHandler("live_summary", live_summary))
+    app.add_handler(CommandHandler("live_pnl_today", live_pnl_today))
+    app.add_handler(CommandHandler("live_account", live_account))
+    app.add_handler(CommandHandler("live_guard", live_guard))
     app.add_handler(CommandHandler("live_sync", live_sync))
     app.add_handler(CommandHandler("live_sync_one", live_sync_one))
     app.add_handler(CommandHandler("live_close_test", live_close_test))

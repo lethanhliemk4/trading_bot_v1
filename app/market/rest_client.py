@@ -25,6 +25,13 @@ def _normalize_symbol(symbol: str) -> str:
     return str(symbol).upper().strip()
 
 
+def _normalize_order_side(side: str) -> str:
+    value = str(side).upper().strip()
+    if value not in {"BUY", "SELL"}:
+        raise ValueError(f"Invalid order side: {side}")
+    return value
+
+
 def _decimal_from_value(value) -> Decimal:
     try:
         return Decimal(str(value))
@@ -99,10 +106,20 @@ def _get_headers() -> dict:
     return headers
 
 
+def _ensure_private_api_credentials():
+    if not settings.BINANCE_API_KEY or not settings.BINANCE_API_KEY.strip():
+        raise ValueError("BINANCE_API_KEY is required for private Binance API")
+
+    if not settings.BINANCE_API_SECRET or not settings.BINANCE_API_SECRET.strip():
+        raise ValueError("BINANCE_API_SECRET is required for private Binance API")
+
+
 def _sign_params(params: dict) -> dict:
     """
     Sign params for Binance private endpoints
     """
+    _ensure_private_api_credentials()
+
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
     signature = hmac.new(
         settings.BINANCE_API_SECRET.encode(),
@@ -563,9 +580,10 @@ async def place_market_order(
     """
     params = {
         "symbol": _normalize_symbol(symbol),
-        "side": side,
+        "side": _normalize_order_side(side),
         "type": "MARKET",
         "quantity": _format_decimal_str(quantity),
+        "newOrderRespType": "FULL",
     }
 
     return await _post("/api/v3/order", params=params)

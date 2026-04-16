@@ -84,8 +84,15 @@ class Settings(BaseSettings):
     # ===== Live execution safety config =====
     LIVE_MAX_NOTIONAL_PER_TRADE: float = 50.0
     LIVE_MAX_OPEN_TRADES: int = 2
+    LIVE_MAX_TRADES_PER_DAY: int = 10
     LIVE_DAILY_LOSS_LIMIT_USDT: float = 25.0
     LIVE_MIN_FREE_USDT: float = 25.0
+
+    # ===== Runtime protection config =====
+    LIVE_TRADE_COOLDOWN_SECONDS: int = 60
+    HEARTBEAT_INTERVAL_SECONDS: int = 300
+    WATCHDOG_INTERVAL_SECONDS: int = 60
+    LOOP_STALE_THRESHOLD_SECONDS: int = 600
 
     # Optional execution behavior toggles for future live engine
     LIVE_PLACE_SL_TP_AFTER_ENTRY: bool = True
@@ -215,11 +222,26 @@ class Settings(BaseSettings):
         if self.LIVE_MAX_OPEN_TRADES <= 0:
             raise ValueError("LIVE_MAX_OPEN_TRADES must be greater than 0")
 
+        if self.LIVE_MAX_TRADES_PER_DAY <= 0:
+            raise ValueError("LIVE_MAX_TRADES_PER_DAY must be greater than 0")
+
         if self.LIVE_DAILY_LOSS_LIMIT_USDT <= 0:
             raise ValueError("LIVE_DAILY_LOSS_LIMIT_USDT must be greater than 0")
 
         if self.LIVE_MIN_FREE_USDT < 0:
             raise ValueError("LIVE_MIN_FREE_USDT must be >= 0")
+
+        if self.LIVE_TRADE_COOLDOWN_SECONDS <= 0:
+            raise ValueError("LIVE_TRADE_COOLDOWN_SECONDS must be greater than 0")
+
+        if self.HEARTBEAT_INTERVAL_SECONDS <= 0:
+            raise ValueError("HEARTBEAT_INTERVAL_SECONDS must be greater than 0")
+
+        if self.WATCHDOG_INTERVAL_SECONDS <= 0:
+            raise ValueError("WATCHDOG_INTERVAL_SECONDS must be greater than 0")
+
+        if self.LOOP_STALE_THRESHOLD_SECONDS <= 0:
+            raise ValueError("LOOP_STALE_THRESHOLD_SECONDS must be greater than 0")
 
         if not self.TELEGRAM_ALLOWED_USER_IDS.strip():
             raise ValueError("TELEGRAM_ALLOWED_USER_IDS is required")

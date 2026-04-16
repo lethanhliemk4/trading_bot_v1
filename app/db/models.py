@@ -113,6 +113,7 @@ class LiveTrade(Base):
     requested_qty = Column(Float, nullable=False, default=0.0)
     executed_qty = Column(Float, nullable=False, default=0.0)
     remaining_qty = Column(Float, nullable=False, default=0.0)
+    remaining_qty_after_tp1 = Column(Float, nullable=False, default=0.0)
     avg_fill_price = Column(Float, nullable=True)
 
     entry_order_id = Column(String(100), nullable=True, index=True)
@@ -126,7 +127,7 @@ class LiveTrade(Base):
     exit_order_id = Column(String(100), nullable=True, index=True)
     exit_order_status = Column(String(30), nullable=True)
 
-    status = Column(String(30), nullable=False, default="PENDING")
+    status = Column(String(30), nullable=False, default="OPEN")
     exit_price = Column(Float, nullable=True)
     result_percent = Column(Float, nullable=True)
     close_reason = Column(String(30), nullable=True)
@@ -141,7 +142,7 @@ class LiveTrade(Base):
     tp1_closed_size = Column(Float, default=0.0)
     realized_pnl = Column(Float, default=0.0)
 
-    raw_order_response = Column(String(5000), nullable=True)
+    raw_order_response = Column(String(10000), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

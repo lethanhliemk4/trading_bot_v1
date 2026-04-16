@@ -1,4 +1,8 @@
+from datetime import datetime, timezone
+
 from app.config import get_settings
+from app.db.models import LiveTrade
+from app.db.session import SessionLocal
 from app.services.paper_trade_service import (
     get_open_paper_trades,
     get_today_realized_pnl,
@@ -91,6 +95,124 @@ def validate_risk_limits(
 
     if notional > settings.MAX_NOTIONAL_PER_TRADE:
         return False, f"Notional too high ({notional:.2f})"
+
+    return True, None
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def get_today_live_realized_pnl() -> float:
+    db = SessionLocal()
+    try:
+        now = _utcnow()
+        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+        trades = (
+            db.query(LiveTrade)
+            .filter(
+                LiveTrade.status == "CLOSED",
+                LiveTrade.closed_at.isnot(None),
+                LiveTrade.closed_at >= start_of_day,
+            )
+            .all()
+        )
+
+        return float(sum(float(t.realized_pnl or 0.0) for t in trades))
+    finally:
+        db.close()
+
+
+def get_today_live_trade_count() -> int:
+    db = SessionLocal()
+    try:
+        now = _utcnow()
+        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+        count = (
+            db.query(LiveTrade)
+            .filter(
+                LiveTrade.created_at >= start_of_day,
+            )
+            .count()
+        )
+
+        return int(count)
+    finally:
+        db.close()
+
+
+def get_open_live_trades_count() -> int:
+    db = SessionLocal()
+    try:
+        return int(
+            db.query(LiveTrade)
+            .filter(LiveTrade.status == "OPEN")
+            .count()
+        )
+    finally:
+        db.close()
+
+
+def has_open_live_trade_for_symbol(symbol: str) -> bool:
+    db = SessionLocal()
+    try:
+        trade = (
+            db.query(LiveTrade)
+            .filter(
+                LiveTrade.status == "OPEN",
+                LiveTrade.symbol == str(symbol).upper().strip(),
+            )
+            .first()
+        )
+        return trade is not None
+    finally:
+        db.close()
+
+
+def is_live_daily_loss_limit_hit() -> tuple[bool, float]:
+    today_pnl = get_today_live_realized_pnl()
+    limit_hit = today_pnl <= -abs(float(settings.LIVE_DAILY_LOSS_LIMIT_USDT))
+    return limit_hit, float(today_pnl)
+
+
+def validate_live_risk_limits(
+    symbol: str,
+    notional: float,
+    risk_amount: float,
+) -> tuple[bool, str | None]:
+    normalized_symbol = str(symbol).upper().strip()
+
+    if settings.KILL_SWITCH:
+        return False, "KILL_SWITCH active"
+
+    if not normalized_symbol:
+        return False, "Missing symbol"
+
+    if risk_amount <= 0:
+        return False, "Invalid live risk amount"
+
+    limit_hit, today_pnl = is_live_daily_loss_limit_hit()
+    if limit_hit:
+        return False, f"Live daily loss limit hit ({today_pnl:+.2f})"
+
+    today_count = get_today_live_trade_count()
+    if today_count >= settings.LIVE_MAX_TRADES_PER_DAY:
+        return False, f"Live max trades/day reached ({today_count})"
+
+    open_live_trades = get_open_live_trades_count()
+    if open_live_trades >= settings.LIVE_MAX_OPEN_TRADES:
+        return False, "Live max open trades reached"
+
+    if has_open_live_trade_for_symbol(normalized_symbol):
+        return False, f"Live trade already open for {normalized_symbol}"
+
+    if notional <= 0:
+        return False, "Invalid live notional"
+
+    if notional > settings.LIVE_MAX_NOTIONAL_PER_TRADE:
+        return False, f"Live notional too high ({notional:.2f})"
 
     return True, None
 
@@ -203,6 +325,23 @@ def get_risk_summary() -> dict:
         "max_open_trades": int(settings.MAX_OPEN_TRADES),
         "max_notional_per_trade": float(settings.MAX_NOTIONAL_PER_TRADE),
         "daily_loss_limit_usdt": float(settings.DAILY_LOSS_LIMIT_USDT),
+        "today_realized_pnl": float(today_pnl),
+        "daily_loss_limit_hit": bool(limit_hit),
+        "kill_switch": bool(settings.KILL_SWITCH),
+    }
+
+
+def get_live_risk_summary() -> dict:
+    today_pnl = get_today_live_realized_pnl()
+    limit_hit, _ = is_live_daily_loss_limit_hit()
+
+    return {
+        "max_open_trades": int(settings.LIVE_MAX_OPEN_TRADES),
+        "max_notional_per_trade": float(settings.LIVE_MAX_NOTIONAL_PER_TRADE),
+        "max_trades_per_day": int(settings.LIVE_MAX_TRADES_PER_DAY),
+        "today_trade_count": int(get_today_live_trade_count()),
+        "daily_loss_limit_usdt": float(settings.LIVE_DAILY_LOSS_LIMIT_USDT),
+        "live_min_free_usdt": float(settings.LIVE_MIN_FREE_USDT),
         "today_realized_pnl": float(today_pnl),
         "daily_loss_limit_hit": bool(limit_hit),
         "kill_switch": bool(settings.KILL_SWITCH),

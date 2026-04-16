@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import logging
+import asyncio
 
 from app.config import get_settings
 from app.market.rest_client import (
@@ -11,8 +13,10 @@ from app.market.rest_client import (
 )
 from app.db.session import SessionLocal
 from app.db.models import LiveTrade
+from app.services.risk_service import validate_live_risk_limits
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -49,6 +53,106 @@ def _live_side_to_exit_binance_side(side: str) -> str:
 
 def _utcnow():
     return datetime.now(timezone.utc)
+
+
+def _should_retry_exception(exc: Exception) -> bool:
+    text = str(exc).lower()
+
+    retry_keywords = [
+        "timeout",
+        "timed out",
+        "temporarily unavailable",
+        "connection reset",
+        "connection aborted",
+        "connection refused",
+        "network",
+        "server disconnected",
+        "502",
+        "503",
+        "504",
+        "429",
+    ]
+
+    return any(keyword in text for keyword in retry_keywords)
+
+
+async def _retry_async(
+    func,
+    *args,
+    retries: int = 2,
+    delay_seconds: float = 1.0,
+    operation_name: str = "operation",
+    **kwargs,
+):
+    last_error = None
+
+    for attempt in range(retries + 1):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            last_error = e
+
+            if attempt >= retries or not _should_retry_exception(e):
+                raise
+
+            logger.warning(
+                "%s failed (attempt %s/%s): %s | retrying in %.1fs",
+                operation_name,
+                attempt + 1,
+                retries + 1,
+                e,
+                delay_seconds,
+            )
+            await asyncio.sleep(delay_seconds)
+
+    raise last_error
+
+
+def _count_today_live_trades() -> int:
+    db = SessionLocal()
+    try:
+        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        return (
+            db.query(LiveTrade)
+            .filter(LiveTrade.created_at >= start_of_day)
+            .count()
+        )
+    finally:
+        db.close()
+
+
+def _get_last_live_trade_time():
+    db = SessionLocal()
+    try:
+        trade = (
+            db.query(LiveTrade)
+            .order_by(LiveTrade.created_at.desc())
+            .first()
+        )
+        return trade.created_at if trade else None
+    finally:
+        db.close()
+
+
+def _validate_runtime_live_guards() -> tuple[bool, str | None]:
+    today_count = _count_today_live_trades()
+    if today_count >= settings.LIVE_MAX_TRADES_PER_DAY:
+        return False, f"Daily trade limit reached ({today_count}/{settings.LIVE_MAX_TRADES_PER_DAY})"
+
+    last_trade_time = _get_last_live_trade_time()
+    if last_trade_time:
+        if last_trade_time.tzinfo is None:
+            last_trade_time = last_trade_time.replace(tzinfo=timezone.utc)
+
+        seconds_since_last = (datetime.now(timezone.utc) - last_trade_time).total_seconds()
+        if seconds_since_last < settings.LIVE_TRADE_COOLDOWN_SECONDS:
+            return False, (
+                f"Cooldown active ({int(seconds_since_last)}s < "
+                f"{settings.LIVE_TRADE_COOLDOWN_SECONDS}s)"
+            )
+
+    return True, None
 
 
 def is_live_execution_armed() -> tuple[bool, str | None]:
@@ -344,184 +448,20 @@ def save_live_trade(
         db.close()
 
 
-async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
-    armed, armed_reason = is_live_execution_armed()
-    if not armed:
-        return {
-            "ok": False,
-            "stage": "arming",
-            "reason": armed_reason,
-            "symbol": _normalize_symbol(strategy.get("symbol", "")),
-        }
-
-    valid, valid_reason = validate_live_inputs(strategy, risk)
-    if not valid:
-        return {
-            "ok": False,
-            "stage": "validation",
-            "reason": valid_reason,
-            "symbol": _normalize_symbol(strategy.get("symbol", "")),
-        }
-
-    symbol = _normalize_symbol(strategy["symbol"])
-    side = _normalize_side(strategy["side"])
-    binance_side = _strategy_side_to_binance_side(side)
-
-    raw_qty = _safe_float(risk["position_size"])
-    entry = _safe_float(strategy["entry"])
-
-    normalized = await normalize_order_quantity(symbol, raw_qty)
-    if not normalized:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            "normalize quantity failed",
-            requested_qty=raw_qty,
-        )
-        return {
-            "ok": False,
-            "stage": "quantity",
-            "reason": "normalize quantity failed",
-            "symbol": symbol,
-        }
-
-    if not normalized.get("ok"):
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            normalized.get("reason"),
-            requested_qty=raw_qty,
-        )
-        return {
-            "ok": False,
-            "stage": "quantity",
-            "reason": normalized.get("reason"),
-            "symbol": symbol,
-        }
-
-    qty = _safe_float(normalized.get("normalized_quantity"))
-    qty_str = str(normalized.get("normalized_quantity_str", "0"))
-
-    if qty <= 0:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            "normalized quantity invalid",
-            requested_qty=raw_qty,
-        )
-        return {
-            "ok": False,
-            "stage": "quantity",
-            "reason": "normalized quantity invalid",
-            "symbol": symbol,
-        }
-
-    notional_check = await validate_min_notional(symbol, qty, entry)
-    if not notional_check:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            "min notional validation failed",
-            requested_qty=qty,
-        )
-        return {
-            "ok": False,
-            "stage": "notional",
-            "reason": "min notional validation failed",
-            "symbol": symbol,
-        }
-
-    if not notional_check.get("ok"):
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            notional_check.get("reason"),
-            requested_qty=qty,
-        )
-        return {
-            "ok": False,
-            "stage": "notional",
-            "reason": notional_check.get("reason"),
-            "symbol": symbol,
-        }
-
-    required_notional = _safe_float(notional_check.get("notional"), qty * entry)
-
-    balance_ok, balance_reason, balance_info = await validate_live_balance(required_notional)
-    if not balance_ok:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            balance_reason,
-            requested_qty=qty,
-        )
-        return {
-            "ok": False,
-            "stage": "balance",
-            "reason": balance_reason,
-            "symbol": symbol,
-            "free_usdt": _safe_float(balance_info.get("free_usdt")),
-            "required_notional": _safe_float(balance_info.get("required_notional")),
-        }
-
+def has_open_live_trade(symbol: str) -> bool:
+    db = SessionLocal()
     try:
-        order = await place_market_order(
-            symbol=symbol,
-            side=binance_side,
-            quantity=qty_str,
+        trade = (
+            db.query(LiveTrade)
+            .filter(
+                LiveTrade.status == "OPEN",
+                LiveTrade.symbol == _normalize_symbol(symbol),
+            )
+            .first()
         )
-    except Exception as e:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            str(e),
-            requested_qty=qty,
-        )
-        return {
-            "ok": False,
-            "stage": "order",
-            "reason": str(e),
-            "symbol": symbol,
-            "qty": qty,
-            "qty_str": qty_str,
-        }
-
-    save_live_trade(
-        strategy,
-        risk,
-        order,
-        "OPEN",
-        requested_qty=qty,
-    )
-
-    return {
-        "ok": True,
-        "stage": "submitted",
-        "reason": None,
-        "symbol": symbol,
-        "strategy_side": side,
-        "binance_side": binance_side,
-        "qty": qty,
-        "qty_str": qty_str,
-        "raw_qty": raw_qty,
-        "required_notional": required_notional,
-        "binance_use_testnet": bool(settings.BINANCE_USE_TESTNET),
-        "order": order,
-    }
+        return trade is not None
+    finally:
+        db.close()
 
 
 def get_live_trade_by_id(trade_id: int):
@@ -764,7 +704,14 @@ async def sync_live_trade_order(trade_id: int):
             return trade
 
         try:
-            order_data = await get_order(trade.symbol, trade.entry_order_id)
+            order_data = await _retry_async(
+                get_order,
+                trade.symbol,
+                trade.entry_order_id,
+                retries=2,
+                delay_seconds=1.0,
+                operation_name="sync_live_trade_order.get_order",
+            )
         except Exception as e:
             trade.fail_reason = f"sync error: {e}"
             trade.last_synced_at = _utcnow()
@@ -798,7 +745,14 @@ async def sync_open_live_trades():
                 continue
 
             try:
-                order_data = await get_order(trade.symbol, trade.entry_order_id)
+                order_data = await _retry_async(
+                    get_order,
+                    trade.symbol,
+                    trade.entry_order_id,
+                    retries=2,
+                    delay_seconds=1.0,
+                    operation_name="sync_open_live_trades.get_order",
+                )
             except Exception as e:
                 trade.fail_reason = f"sync error: {e}"
                 trade.last_synced_at = _utcnow()
@@ -811,6 +765,276 @@ async def sync_open_live_trades():
         return updated_ids
     finally:
         db.close()
+
+
+async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
+    armed, armed_reason = is_live_execution_armed()
+    if not armed:
+        return {
+            "ok": False,
+            "stage": "arming",
+            "reason": armed_reason,
+            "symbol": _normalize_symbol(strategy.get("symbol", "")),
+        }
+
+    runtime_ok, runtime_reason = _validate_runtime_live_guards()
+    if not runtime_ok:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            runtime_reason,
+            requested_qty=_safe_float(risk.get("position_size")),
+        )
+        return {
+            "ok": False,
+            "stage": "runtime_guard",
+            "reason": runtime_reason,
+            "symbol": _normalize_symbol(strategy.get("symbol", "")),
+        }
+
+    valid, valid_reason = validate_live_inputs(strategy, risk)
+    if not valid:
+        return {
+            "ok": False,
+            "stage": "validation",
+            "reason": valid_reason,
+            "symbol": _normalize_symbol(strategy.get("symbol", "")),
+        }
+
+    symbol = _normalize_symbol(strategy["symbol"])
+    side = _normalize_side(strategy["side"])
+    binance_side = _strategy_side_to_binance_side(side)
+
+    if has_open_live_trade(symbol):
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            f"Duplicate live trade blocked for {symbol}",
+            requested_qty=_safe_float(risk.get("position_size")),
+        )
+        return {
+            "ok": False,
+            "stage": "duplicate",
+            "reason": f"Duplicate live trade blocked for {symbol}",
+            "symbol": symbol,
+        }
+
+    raw_qty = _safe_float(risk["position_size"])
+    entry = _safe_float(strategy["entry"])
+    risk_amount = _safe_float(risk["risk_amount"])
+
+    normalized = await normalize_order_quantity(symbol, raw_qty)
+    if not normalized:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            "normalize quantity failed",
+            requested_qty=raw_qty,
+        )
+        return {
+            "ok": False,
+            "stage": "quantity",
+            "reason": "normalize quantity failed",
+            "symbol": symbol,
+        }
+
+    if not normalized.get("ok"):
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            normalized.get("reason"),
+            requested_qty=raw_qty,
+        )
+        return {
+            "ok": False,
+            "stage": "quantity",
+            "reason": normalized.get("reason"),
+            "symbol": symbol,
+        }
+
+    qty = _safe_float(normalized.get("normalized_quantity"))
+    qty_str = str(normalized.get("normalized_quantity_str", "0"))
+
+    if qty <= 0:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            "normalized quantity invalid",
+            requested_qty=raw_qty,
+        )
+        return {
+            "ok": False,
+            "stage": "quantity",
+            "reason": "normalized quantity invalid",
+            "symbol": symbol,
+        }
+
+    notional_check = await validate_min_notional(symbol, qty, entry)
+    if not notional_check:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            "min notional validation failed",
+            requested_qty=qty,
+        )
+        return {
+            "ok": False,
+            "stage": "notional",
+            "reason": "min notional validation failed",
+            "symbol": symbol,
+        }
+
+    if not notional_check.get("ok"):
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            notional_check.get("reason"),
+            requested_qty=qty,
+        )
+        return {
+            "ok": False,
+            "stage": "notional",
+            "reason": notional_check.get("reason"),
+            "symbol": symbol,
+        }
+
+    required_notional = _safe_float(notional_check.get("notional"), qty * entry)
+
+    live_risk_ok, live_risk_reason = validate_live_risk_limits(
+        symbol=symbol,
+        notional=required_notional,
+        risk_amount=risk_amount,
+    )
+    if not live_risk_ok:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            live_risk_reason,
+            requested_qty=qty,
+        )
+        return {
+            "ok": False,
+            "stage": "live_risk",
+            "reason": live_risk_reason,
+            "symbol": symbol,
+            "required_notional": required_notional,
+        }
+
+    balance_ok, balance_reason, balance_info = await validate_live_balance(required_notional)
+    if not balance_ok:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            balance_reason,
+            requested_qty=qty,
+        )
+        return {
+            "ok": False,
+            "stage": "balance",
+            "reason": balance_reason,
+            "symbol": symbol,
+            "free_usdt": _safe_float(balance_info.get("free_usdt")),
+            "required_notional": _safe_float(balance_info.get("required_notional")),
+        }
+
+    logger.warning(
+        "[LIVE EXECUTION] %s %s | qty=%s | notional=%.2f",
+        symbol,
+        binance_side,
+        qty_str,
+        required_notional,
+    )
+
+    try:
+        order = await _retry_async(
+            place_market_order,
+            symbol=symbol,
+            side=binance_side,
+            quantity=qty_str,
+            retries=2,
+            delay_seconds=1.0,
+            operation_name="execute_live_market_order.place_market_order",
+        )
+    except Exception as e:
+        save_live_trade(
+            strategy,
+            risk,
+            None,
+            "FAILED",
+            str(e),
+            requested_qty=qty,
+        )
+        return {
+            "ok": False,
+            "stage": "order",
+            "reason": str(e),
+            "symbol": symbol,
+            "qty": qty,
+            "qty_str": qty_str,
+        }
+
+    trade = save_live_trade(
+        strategy,
+        risk,
+        order,
+        "OPEN",
+        requested_qty=qty,
+    )
+
+    try:
+        if trade and trade.entry_order_id:
+            order_data = await _retry_async(
+                get_order,
+                symbol,
+                trade.entry_order_id,
+                retries=2,
+                delay_seconds=1.0,
+                operation_name="execute_live_market_order.post_order_sync",
+            )
+            db = SessionLocal()
+            try:
+                db_trade = db.query(LiveTrade).filter(LiveTrade.id == trade.id).first()
+                if db_trade:
+                    _sync_live_trade_order_data(db_trade, order_data)
+                    db.commit()
+                    db.refresh(db_trade)
+            finally:
+                db.close()
+    except Exception as e:
+        logger.warning("Post-order sync failed for %s: %s", symbol, e)
+
+    return {
+        "ok": True,
+        "stage": "submitted",
+        "reason": None,
+        "symbol": symbol,
+        "strategy_side": side,
+        "binance_side": binance_side,
+        "qty": qty,
+        "qty_str": qty_str,
+        "raw_qty": raw_qty,
+        "required_notional": required_notional,
+        "binance_use_testnet": bool(settings.BINANCE_USE_TESTNET),
+        "order": order,
+    }
 
 
 async def execute_live_close_market_order(trade_id: int) -> dict:
@@ -845,7 +1069,14 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
 
         if trade.entry_order_id:
             try:
-                order_data = await get_order(trade.symbol, trade.entry_order_id)
+                order_data = await _retry_async(
+                    get_order,
+                    trade.symbol,
+                    trade.entry_order_id,
+                    retries=2,
+                    delay_seconds=1.0,
+                    operation_name="execute_live_close_market_order.pre_close_sync",
+                )
                 _sync_live_trade_order_data(trade, order_data)
                 db.commit()
                 db.refresh(trade)
@@ -903,10 +1134,14 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
             }
 
         try:
-            exit_order = await place_market_order(
+            exit_order = await _retry_async(
+                place_market_order,
                 symbol=symbol,
                 side=exit_side,
                 quantity=qty_str,
+                retries=2,
+                delay_seconds=1.0,
+                operation_name="execute_live_close_market_order.place_market_order",
             )
         except Exception as e:
             trade.fail_reason = f"close order error: {e}"
