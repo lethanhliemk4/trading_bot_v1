@@ -66,7 +66,9 @@ class Settings(BaseSettings):
     BINANCE_API_SECRET: str | None = None
     BINANCE_USE_TESTNET: bool = True
 
-    # Explicit arming flags so live cannot be enabled by accident
+    # Explicit arming flags
+    # - Testnet: LIVE_EXECUTION_ENABLED is enough for execution
+    # - Mainnet: requires LIVE_CONFIRM_REAL_ORDERS too
     LIVE_CONFIRM_REAL_ORDERS: bool = False
     LIVE_EXECUTION_ENABLED: bool = False
 
@@ -131,6 +133,12 @@ class Settings(BaseSettings):
 
     @property
     def is_live_trading_active(self) -> bool:
+        if self.BINANCE_USE_TESTNET:
+            return (
+                self.ENABLE_LIVE_TRADING
+                and self.LIVE_EXECUTION_ENABLED
+            )
+
         return (
             self.ENABLE_LIVE_TRADING
             and self.LIVE_EXECUTION_ENABLED
@@ -266,9 +274,9 @@ class Settings(BaseSettings):
             if self.REQUIRE_PROD_FOR_LIVE and not self.is_production:
                 raise ValueError("Active LIVE execution requires APP_ENV=prod")
 
-            if self.BINANCE_USE_TESTNET and self.LIVE_CONFIRM_REAL_ORDERS:
+            if not self.BINANCE_USE_TESTNET and not self.LIVE_CONFIRM_REAL_ORDERS:
                 raise ValueError(
-                    "LIVE_CONFIRM_REAL_ORDERS should not be True while BINANCE_USE_TESTNET=True"
+                    "Mainnet LIVE execution requires LIVE_CONFIRM_REAL_ORDERS=true"
                 )
 
 
