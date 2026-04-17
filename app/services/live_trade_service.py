@@ -165,8 +165,11 @@ def is_live_execution_armed() -> tuple[bool, str | None]:
     if not settings.LIVE_EXECUTION_ENABLED:
         return False, "LIVE_EXECUTION_ENABLED is false"
 
-    if not settings.LIVE_CONFIRM_REAL_ORDERS:
-        return False, "LIVE_CONFIRM_REAL_ORDERS is false"
+    # Testnet: cho phép execution mà không cần confirm flag
+    # Mainnet: vẫn bắt buộc confirm để tránh bắn lệnh thật ngoài ý muốn
+    if not settings.BINANCE_USE_TESTNET:
+        if not settings.LIVE_CONFIRM_REAL_ORDERS:
+            return False, "LIVE_CONFIRM_REAL_ORDERS is false"
 
     if settings.REQUIRE_PROD_FOR_LIVE and not settings.is_production:
         return False, "LIVE trading requires APP_ENV=prod"
