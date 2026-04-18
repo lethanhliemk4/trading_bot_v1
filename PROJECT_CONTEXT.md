@@ -2,8 +2,11 @@
 
 ## 📍 Current Phase
 
-* Phase: **Paper Trading**
-* Status: **COMPLETED & VERIFIED**
+* Phase: **TESTNET LIVE VALIDATION**
+* Previous Stable Phase: **Paper Trading**
+* Status: **Paper COMPLETED & VERIFIED**
+* Status: **Testnet live engine ARMED & READY**
+* Status: **Mainnet NOT ENABLED**
 
 ### ✅ Verified Features
 
@@ -20,6 +23,18 @@
 * Daily loss breaker
 * Risk limit per trade
 * Live trading engine (SAFE MODE)
+* Live execution armed successfully on TESTNET
+* Runtime status command
+* Live guard command
+* Live account command
+* Live sync / sync one
+* Live detail / live history / live stats / live summary
+* Manual live close test
+* VPS deploy flow verified
+* Docker + MySQL runtime stable
+* Health endpoint verified
+* DB schema updated for live tracking
+* Watchdog / heartbeat / loop stale protection
 
 👉 **System is STABLE → CORE LOGIC MUST BE FROZEN**
 
@@ -112,8 +127,28 @@ Khi sửa:
 * ❌ Không bật live full vốn
 * ❌ Không bypass risk layer
 * ❌ Không bypass duplicate guard
-* ❌ Không trade khi chưa confirm
+* ❌ Không trade mainnet khi chưa confirm
 * ✅ Live là execution layer riêng
+* ✅ Testnet execution được phép không cần mainnet confirm flag
+* ✅ Mainnet vẫn phải có confirm flag riêng
+
+---
+
+## 7. 🔒 CURRENT SAFETY POSITION
+
+### Hiện tại dự án đang ở trạng thái:
+
+* ✅ Có thể trade **thật trên TESTNET**
+* ✅ Chưa được phép trade **MAINNET**
+* ✅ Có guard chặn nhầm lẫn testnet/mainnet
+* ✅ Có `KILL_SWITCH`
+* ✅ Có runtime guard
+* ✅ Có duplicate guard
+* ✅ Có daily loss breaker
+* ✅ Có cooldown giữa lệnh live
+* ✅ Có max trades per day
+* ✅ Có max open live trades
+* ✅ Có min free USDT guard
 
 ---
 
@@ -124,44 +159,39 @@ Paper = simulation engine
 Live = execution layer
 
 👉 Không được trộn logic
-
 🧱 SYSTEM ARCHITECTURE (LOCKED)
 Flow chính
 Scanner Loop
-
 scan → AI → strategy → risk → Telegram → DB → open trade
-
 Paper Trade Loop
-
 price → TP1 → partial → trailing → TP2/SL
-
 Performance Loop
-
 5m → 15m → stats → DB
-
 Live Execution Flow (NEW)
-
 signal → strategy → risk → validation → Binance order → sync → manage position
+Live Management Flow
+entry fill → sync order → TP1 hit → trailing active → TP2 / SL / TSL close
 
 👉 Flow này đã VERIFIED → KHÔNG ĐƯỢC PHÁ
 
 🔧 SAFE CHANGES ALLOWED
-
 Có thể làm:
-
 thêm logging
 cải thiện message Telegram
 chỉnh config .env
-viết README
+viết README / docs
 thêm dashboard
 thêm debug tools
 thêm sync tools
-
+thêm health command
+thêm monitoring
+thêm export / audit tools
 Không được làm:
-
 rewrite trading logic
 thay đổi TP/SL behavior
 thay đổi flow hệ thống
+merge paper + live engine
+bỏ guard để trade nhanh hơn
 📊 RISK SYSTEM CONTEXT
 Risk theo % vốn
 Position size = risk_amount / stop_distance
@@ -170,45 +200,86 @@ Max notional per trade
 Daily loss breaker
 Kill switch
 Duplicate trade guard
-📌 CURRENT CONFIG (REFERENCE)
+Runtime cooldown
+Live daily trade limit
+Live free balance guard
+Live max open trades guard
+📌 CURRENT CONFIG CONTEXT (REFERENCE)
+A. Paper / safe reference
 APP_MODE=test
 APP_ENV=dev
+ENABLE_LIVE_TRADING=false
+LIVE_EXECUTION_ENABLED=false
+LIVE_CONFIRM_REAL_ORDERS=false
+BINANCE_USE_TESTNET=true
+B. Current recommended testnet live reference
+APP_MODE=prod
+APP_ENV=prod
+ENABLE_LIVE_TRADING=true
+LIVE_EXECUTION_ENABLED=true
+LIVE_CONFIRM_REAL_ORDERS=false
+BINANCE_USE_TESTNET=true
+C. Mainnet reference (NOT FOR NOW)
+APP_MODE=prod
+APP_ENV=prod
+ENABLE_LIVE_TRADING=true
+LIVE_EXECUTION_ENABLED=true
+LIVE_CONFIRM_REAL_ORDERS=true
+BINANCE_USE_TESTNET=false
 🚀 LIVE PHASE RULES (CỰC QUAN TRỌNG)
 ❗ BEFORE ENABLE LIVE
 
 Phải đảm bảo:
 
- Paper trading stable nhiều giờ
- Không có bug TP1 / trailing
- Risk hoạt động đúng
- Daily loss breaker OK
- Duplicate guard OK
- Sync hoạt động đúng
+Paper trading stable nhiều giờ
+Không có bug TP1 / trailing
+Risk hoạt động đúng
+Daily loss breaker OK
+Duplicate guard OK
+Sync hoạt động đúng
+Runtime guard hoạt động đúng
+Telegram control hoạt động đúng
+VPS stable
+DB save đúng lifecycle
 🔐 LIVE SAFETY LAYER (BẮT BUỘC)
 
 Bot chỉ trade khi:
 
 ENABLE_LIVE_TRADING=true
 LIVE_EXECUTION_ENABLED=true
-LIVE_CONFIRM_REAL_ORDERS=true
 APP_ENV=prod
 API key hợp lệ
 API secret hợp lệ
 Balance đủ
 Notional hợp lệ
+Cooldown pass
+Daily trade limit pass
+Duplicate symbol pass
+KILL_SWITCH không bật
+Mainnet only:
+LIVE_CONFIRM_REAL_ORDERS=true
+Testnet only:
+không cần LIVE_CONFIRM_REAL_ORDERS=true
 ❗ LIVE SAFETY STRATEGY
 1. Start SMALL
-RISK_CAPITAL_USDT = 10–50
+LIVE_MAX_NOTIONAL_PER_TRADE = 10–20
 2. Limit trades
-MAX_OPEN_TRADES = 1–2
-3. Confirm execution
-Có thể cần Telegram confirm trước khi đặt lệnh
+LIVE_MAX_OPEN_TRADES = 1
+LIVE_MAX_TRADES_PER_DAY = 3
+3. Keep cooldown
+LIVE_TRADE_COOLDOWN_SECONDS = 180
 4. Kill switch ALWAYS READY
 KILL_SWITCH=true
+
+khi cần panic ngay
+
 ❗ NEVER DO THIS
 ❌ Không bật LIVE ngay với full capital
 ❌ Không sửa logic khi đang chạy live
 ❌ Không deploy code chưa test
+❌ Không nhảy từ local thẳng lên mainnet
+❌ Không bỏ qua /live_guard
+❌ Không test mainnet trước khi testnet đủ lâu
 📱 TELEGRAM CONTROL CONTEXT
 
 Bot điều khiển qua Telegram:
@@ -217,38 +288,178 @@ Core commands
 /mode paper
 /mode live
 /panic
+/status
+/runtime_status
+/live_guard
+/live_account
 Debug commands
 /scan
+/scanall
 /forcealert
 /aitest
 Live commands
 /live_test
 /live_open
+/live_history
+/live_stats
+/live_summary
 /live_sync
+/live_sync_one
 /live_detail
+/live_close_test
+/live_pnl_today
 🧪 DEBUG CONTEXT
 Paper Debug
 check TP1 hit
 check trailing update
 check SL / TP2 close
+check equity
+check today PnL
 Live Debug
 check order placed
 check fill price
 check sync data
 check position state
+check account snapshot
+check runtime guard
+check close order
+check history / stats / summary
 📊 LIVE CHECKLIST (FINAL)
- paper stable
- TP1 OK
- trailing OK
- risk OK
- API OK
- balance OK
- sync OK
- detail OK
+paper stable
+TP1 OK
+trailing OK
+risk OK
+API OK
+balance OK
+sync OK
+detail OK
+close OK
+summary OK
+stats OK
+panic OK
+watchdog OK
+heartbeat OK
+🏗️ INFRASTRUCTURE CONTEXT
+Deployment style
+VPS
+├── binance-bot-app
+└── binance-bot-mysql
+Notes
+Không cần Nginx
+Không expose MySQL
+App port bind local 127.0.0.1:8000
+Docker compose healthcheck /health
+MySQL container dùng volume
+Logs mount ra ./logs
+🗄️ DATABASE CONTEXT
+LiveTrade hiện đang track:
+symbol
+side
+environment
+exchange
+entry_price
+sl
+tp1
+tp2
+rr
+risk_amount
+position_size
+notional
+requested_qty
+executed_qty
+remaining_qty
+remaining_qty_after_tp1
+avg_fill_price
+entry_order_id
+entry_client_order_id
+entry_order_status
+exit_order_id
+exit_order_status
+status
+exit_price
+result_percent
+close_reason
+fail_reason
+tp1_hit
+tp1_hit_at
+trailing_sl
+trailing_active
+tp1_closed_size
+realized_pnl
+raw_order_response
+opened_at
+closed_at
+entry_submitted_at
+entry_filled_at
+last_synced_at
+Important note
+
+Base.metadata.create_all() không migrate bảng cũ.
+Nếu thêm cột mới vào model → phải cập nhật schema thủ công hoặc dùng migration.
+
+🧩 IMPORTANT FIXES ALREADY APPLIED
+1. Runtime status fix
+/runtime_status từng silent fail
+đã fix handler fail-safe
+2. Config fix
+testnet execution không còn bị block sai
+mainnet vẫn bắt confirm
+3. Live guard fix
+is_live_execution_armed() đã sửa:
+testnet không cần confirm flag
+mainnet cần confirm flag
+4. Live loop fix
+khi TP2 / SL / TSL hit:
+không chỉ đóng DB
+mà gọi close execution thật
+5. DB schema fix
+
+Đã thêm / sửa:
+
+remaining_qty_after_tp1
+raw_order_response tăng size
+status default = OPEN
+🎯 CURRENT PHASE
+Hiện tại nên làm gì
+Focus hiện tại:
+TESTNET LIVE VALIDATION FOR ~1 WEEK
+Không nên làm ngay:
+MAINNET DEPLOY
+📅 7-DAY TESTNET PLAN CONTEXT
+Day 1
+check /status
+check /live_guard
+check /runtime_status
+check /live_account
+Day 2
+test scanner
+test watchlist
+test signal flow
+Day 3
+test /live_test BTCUSDT
+verify DB save
+Day 4
+test /live_sync
+test /live_detail
+Day 5
+test /live_close_test
+verify history / stats / pnl
+Day 6
+bật /mode live
+để bot tự scan / tự vào lệnh testnet
+Day 7
+test /panic
+test stability
+review logs / stats / runtime
 🎯 NEXT STEP
 
-👉 Move to LIVE PHASE (SAFE MODE)
+👉 Continue TESTNET LIVE PHASE (SAFE MODE)
 
+Sau khi testnet ổn định:
+
+mới tối ưu tiếp
+mới scale config
+mới nghĩ tới mainnet
 🧠 NOTE
 
 File này dùng để:
@@ -258,3 +469,33 @@ giữ context project
 đảm bảo AI không phá code
 hỗ trợ debug system
 hỗ trợ triển khai live an toàn
+nhắc lại rule không phá logic
+giữ đúng định hướng phát triển
+🧱 LOCKED PRINCIPLE
+Scanner → AI → Strategy → Risk → Telegram → DB → Trade
+Price → TP1 → Trailing → TP2 / SL
+
+👉 Đây là flow khóa cứng
+👉 Không được phá nếu chưa có confirm rõ ràng
+
+📌 PROJECT STATUS SUMMARY
+Stable
+paper engine
+scanner
+AI filter
+strategy
+risk
+duplicate guard
+daily loss breaker
+Telegram control
+Armed on testnet
+live guard
+runtime guard
+testnet execution permission
+VPS deploy
+live commands
+live sync / detail / close
+Not yet approved
+mainnet real-money deployment
+high capital scaling
+aggressive trade frequency
