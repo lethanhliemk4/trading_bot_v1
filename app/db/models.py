@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text
 from sqlalchemy.sql import func
 
 from app.db.session import Base
@@ -131,7 +131,9 @@ class LiveTrade(Base):
     exit_price = Column(Float, nullable=True)
     result_percent = Column(Float, nullable=True)
     close_reason = Column(String(30), nullable=True)
-    fail_reason = Column(String(255), nullable=True)
+
+    # 🔥 FIX CHÍNH
+    fail_reason = Column(Text, nullable=True)
 
     tp1_hit = Column(Boolean, default=False)
     tp1_hit_at = Column(DateTime(timezone=True), nullable=True)

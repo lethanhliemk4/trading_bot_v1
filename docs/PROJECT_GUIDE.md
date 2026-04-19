@@ -17,6 +17,12 @@
 * ✅ Runtime guard / watchdog / heartbeat
 * ✅ Live trade sync / close / detail / stats
 * ✅ VPS deploy flow working
+* ✅ Live execution full cycle verified (OPEN → MANAGE → CLOSE)
+* ✅ TP1 hit / trailing update verified on live flow
+* ✅ Runtime guard cooldown bug fixed
+* ✅ `fail_reason` DB overflow issue fixed
+* ✅ Strategy level 2 filter started
+* ✅ Main flow updated to support strategy validation gate
 
 👉 **System is stable → DO NOT BREAK CORE LOGIC**
 

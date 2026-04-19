@@ -13,6 +13,10 @@ Hệ thống hiện tại đã hoàn thiện các phần cốt lõi:
 * Testnet live execution
 * Runtime guard / watchdog / heartbeat
 * Sync / close / stats / detail cho live trade
+* Strategy filtering level 2
+* Anti-spam signal control
+* Runtime cooldown fix
+* DB fail_reason overflow fix
 
 ---
 
@@ -27,16 +31,21 @@ Bot hiện đang ở trạng thái:
 * ✅ **Testnet execution** đã armed và test được
 * ✅ VPS deploy flow hoạt động
 * ✅ Docker + MySQL runtime ổn định
+* ✅ Live execution lifecycle đã verify
+* ✅ TP1 / trailing / close đã verify
 * ❌ Mainnet chưa bật
 
 ## 🎯 Current Phase
 
-**TESTNET LIVE VALIDATION**
+**TESTNET LIVE VALIDATION + STRATEGY OPTIMIZATION**
 
 Mục tiêu hiện tại là:
+
 * chạy bot trên VPS
 * test testnet ổn định khoảng 1 tuần
 * kiểm tra auto trade, sync, close, risk, guard
+* giảm spam signal
+* cải thiện winrate
 * chỉ sau đó mới cân nhắc mainnet
 
 ---
@@ -101,6 +110,8 @@ Mục tiêu hiện tại là:
 * Live max trades/day
 * Live min free balance
 * Duplicate live trade block
+* Live max open trades guard
+* Runtime guard
 
 ---
 
@@ -108,6 +119,8 @@ Mục tiêu hiện tại là:
 
 * `APP_MODE=test` → AI always pass
 * `APP_MODE=prod` → dùng Gemini thật
+* Có thể bật/tắt bằng env:
+  * `ENABLE_AI_FILTER=true/false`
 
 ---
 
@@ -124,14 +137,67 @@ Mục tiêu hiện tại là:
 * Mainnet có confirm guard riêng
 * Manual close
 * Live stats / summary / detail / history
+* TP1 hit / trailing / TP2 / SL / TSL close
+* Runtime guard / duplicate guard / max open trade guard
 
 ---
 
-## ⚙️ Env Mode
+# 🧠 STRATEGY LAYER (LEVEL 2 – NEW)
 
-### TEST MODE
+## ❗ Vấn đề trước đây
 
-```env
+* Bot trade quá nhiều
+* Signal yếu vẫn trade
+* Spam alert
+* Winrate thấp
+* Failed trades cao
+
+---
+
+## ✅ Giải pháp đã áp dụng
+
+Strategy giờ không chỉ tính SL/TP mà còn **lọc tín hiệu**.
+
+### Strategy phải trả về:
+
+```python
+is_valid = True / False
+invalid_reason = "..."
+Main flow bắt buộc:
+if not strategy["is_valid"]:
+    continue
+Filter hiện tại:
+Filter	Ý nghĩa
+score >= 60	loại tín hiệu yếu
+volume >= 150k	loại coin rác
+spike >= 1.5	loại fake move
+atr_ratio >= 0.002	loại sideway
+rr >= 2.0	đảm bảo reward đủ
+🎯 Kết quả kỳ vọng
+Giảm ~70% trade rác
+Giảm failed trades
+Không spam Telegram
+Winrate có ý nghĩa hơn
+🚫 ANTI-SPAM SIGNAL CONTROL (NEW)
+❗ Vấn đề
+scanner spam
+alert spam
+DB spam
+guard phải chặn liên tục
+✅ Fix
+strategy = build_strategy(coin)
+
+if not strategy["is_valid"]:
+    continue
+
+coin["strategy"] = strategy
+new_alerts.append(coin)
+🎯 Kết quả
+Telegram sạch hơn
+DB sạch hơn
+Debug dễ hơn
+⚙️ Env Mode
+TEST MODE
 APP_MODE=test
 
 Behavior:
@@ -195,6 +261,7 @@ DB_PASSWORD=pass
 MYSQL_ROOT_PASSWORD=pass
 
 GEMINI_API_KEY=
+ENABLE_AI_FILTER=true
 
 RISK_CAPITAL_USDT=100
 RISK_PER_TRADE_PERCENT=1
@@ -238,6 +305,7 @@ DB_PASSWORD=your_real_db_password
 MYSQL_ROOT_PASSWORD=your_real_root_password
 
 GEMINI_API_KEY=
+ENABLE_AI_FILTER=true
 
 RISK_CAPITAL_USDT=100
 RISK_PER_TRADE_PERCENT=1
@@ -416,31 +484,41 @@ Confirm actions
 /confirm paper_reset
 🔄 Flow
 Scanner
+
 Scan market
 → AI filter
 → Build strategy
+→ Validate strategy
 → Build risk
 → Send Telegram
 → Save DB
 → Open paper/live trade
+
 Paper Trade
+
 Check price
 → Hit TP1 → close 50%
 → Activate trailing
 → Update trailing
 → Close TP2 / SL / TSL
+
 Live Trade
+
 Validate signal
+→ Validate strategy
 → Validate risk
 → Validate balance
 → Place Binance order
 → Sync order
 → Manage position (TP1 / trailing / TP2 / SL / TSL)
+
 Performance
+
 Check 5m
 → Check 15m
 → Update DB
 → Send result
+
 🛡 Safety
 KILL_SWITCH
 Max trades
@@ -452,6 +530,7 @@ Live max trades/day
 Live free balance guard
 Watchdog loop stale detection
 Heartbeat
+Strategy validity gate
 📊 Verified
 
 Đã test OK:
@@ -470,6 +549,8 @@ Testnet armed execution
 VPS deploy flow
 Health endpoint
 Live sync / live close / live detail
+Runtime cooldown fix
+DB fail_reason fix
 🗄 Database
 Tables
 signals
@@ -609,6 +690,7 @@ Day 7 – Test safety
 Dashboard
 Backtest
 AI nâng cao
+Strategy optimization
 Scaling system
 Better live audit
 Better trailing / partial close execution
@@ -619,11 +701,11 @@ Không commit .env
 Test nhanh → dùng APP_MODE=test
 Stable → chuyển APP_MODE=prod
 Live → bật từng bước (safe mode)
-Testnet execution:
+Testnet execution
 BINANCE_USE_TESTNET=true
 LIVE_EXECUTION_ENABLED=true
 LIVE_CONFIRM_REAL_ORDERS=false
-Mainnet execution:
+Mainnet execution
 BINANCE_USE_TESTNET=false
 LIVE_CONFIRM_REAL_ORDERS=true
 ⚠️ Common Errors
@@ -651,6 +733,45 @@ Phải update schema thủ công hoặc dùng migration.
 Xóa dòng:
 
 version: "3.9"
+5. Cooldown bug
+
+Lỗi cũ:
+
+Cooldown active (-25199s < 1s)
+
+Đã fix:
+
+outer cooldown guard
+runtime guard trong live service
+6. fail_reason quá dài
+
+Lỗi cũ:
+
+Data too long for column 'fail_reason'
+
+Fix SQL:
+
+ALTER TABLE live_trades MODIFY fail_reason TEXT;
+📈 Strategy Notes
+
+Nếu thấy:
+
+trades cao
+failed cao
+closed thấp
+winrate thấp
+
+👉 Kết luận đúng là:
+
+engine đang chạy
+risk đang chặn đúng
+strategy/filter đang yếu
+
+❌ Không phải do DB cũ
+❌ Không phải do execution layer hỏng
+
 🎯 FINAL STATUS
 
 👉 Production-ready paper trading + safe live trading system + testnet execution ready
+👉 Core engine đã hoàn chỉnh
+👉 Phase hiện tại = optimize strategy / reduce spam / improve winrate

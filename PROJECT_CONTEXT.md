@@ -2,11 +2,13 @@
 
 ## 📍 Current Phase
 
-* Phase: **TESTNET LIVE VALIDATION**
+* Phase: **TESTNET LIVE VALIDATION + STRATEGY OPTIMIZATION**
 * Previous Stable Phase: **Paper Trading**
 * Status: **Paper COMPLETED & VERIFIED**
-* Status: **Testnet live engine ARMED & READY**
+* Status: **Testnet live engine ARMED & EXECUTED**
 * Status: **Mainnet NOT ENABLED**
+* Status: **Execution engine VERIFIED**
+* Status: **Current weakness = strategy quality / signal filtering**
 
 ### ✅ Verified Features
 
@@ -35,6 +37,13 @@
 * Health endpoint verified
 * DB schema updated for live tracking
 * Watchdog / heartbeat / loop stale protection
+* Live trade execution verified end-to-end
+* Live trade close verified end-to-end
+* TP1 / trailing / close lifecycle verified on live engine
+* Runtime cooldown anomaly fixed
+* `fail_reason` DB overflow fixed
+* Strategy level 2 filtering introduced
+* Main flow strategy validation gate introduced
 
 👉 **System is STABLE → CORE LOGIC MUST BE FROZEN**
 
@@ -51,7 +60,7 @@
   * trailing logic
   * close logic
   * risk calculation
-  * strategy core
+  * strategy core nếu chưa giải thích rõ
 
 👉 Nếu cần sửa:
 
@@ -75,7 +84,7 @@
 👉 Nếu muốn optimize:
 
 * phải hỏi trước
-* phải đảm bảo KHÔNG đổi behavior
+* phải đảm bảo KHÔNG đổi behavior ngoài ý muốn
 
 ---
 
@@ -94,7 +103,7 @@ Khi sửa:
 
   * `.env`
   * config
-* Tránh sửa logic core
+* Tránh sửa logic core nếu chưa thật sự cần
 
 ---
 
@@ -149,6 +158,8 @@ Khi sửa:
 * ✅ Có max trades per day
 * ✅ Có max open live trades
 * ✅ Có min free USDT guard
+* ✅ Có notional guard
+* ✅ Có strategy gate bước đầu
 
 ---
 
@@ -173,7 +184,25 @@ Live Management Flow
 entry fill → sync order → TP1 hit → trailing active → TP2 / SL / TSL close
 
 👉 Flow này đã VERIFIED → KHÔNG ĐƯỢC PHÁ
+🧱 CURRENT REALITY (RẤT QUAN TRỌNG)
+Điều đã được chứng minh
+Engine paper hoạt động đúng
+Engine live testnet hoạt động đúng
+TP1 / trailing / close hoạt động đúng
+Runtime guard hoạt động đúng
+Cooldown bug đã được fix
+DB đã lưu lifecycle live trade đúng hơn
+VPS deploy + update flow đang ổn định
+Điểm yếu hiện tại
 
+❗ Không còn nằm ở execution engine
+
+👉 Điểm yếu hiện tại nằm ở:
+
+quality của signal
+strategy filtering
+anti-spam
+winrate / edge
 🔧 SAFE CHANGES ALLOWED
 Có thể làm:
 thêm logging
@@ -186,13 +215,19 @@ thêm sync tools
 thêm health command
 thêm monitoring
 thêm export / audit tools
+siết strategy filter
+giảm spam signal
+tối ưu watchlist
+thêm regime filter
 Không được làm:
 rewrite trading logic
 thay đổi TP/SL behavior
 thay đổi flow hệ thống
 merge paper + live engine
 bỏ guard để trade nhanh hơn
+đổi behavior core mà không confirm
 📊 RISK SYSTEM CONTEXT
+
 Risk theo % vốn
 Position size = risk_amount / stop_distance
 Max open trades
@@ -204,6 +239,7 @@ Runtime cooldown
 Live daily trade limit
 Live free balance guard
 Live max open trades guard
+
 📌 CURRENT CONFIG CONTEXT (REFERENCE)
 A. Paper / safe reference
 APP_MODE=test
@@ -261,18 +297,14 @@ LIVE_CONFIRM_REAL_ORDERS=true
 Testnet only:
 không cần LIVE_CONFIRM_REAL_ORDERS=true
 ❗ LIVE SAFETY STRATEGY
-1. Start SMALL
+Start SMALL
 LIVE_MAX_NOTIONAL_PER_TRADE = 10–20
-2. Limit trades
+Limit trades
 LIVE_MAX_OPEN_TRADES = 1
-LIVE_MAX_TRADES_PER_DAY = 3
-3. Keep cooldown
+Keep cooldown
 LIVE_TRADE_COOLDOWN_SECONDS = 180
-4. Kill switch ALWAYS READY
-KILL_SWITCH=true
-
-khi cần panic ngay
-
+Kill switch ALWAYS READY
+KILL_SWITCH=true khi cần panic ngay
 ❗ NEVER DO THIS
 ❌ Không bật LIVE ngay với full capital
 ❌ Không sửa logic khi đang chạy live
@@ -405,11 +437,15 @@ Nếu thêm cột mới vào model → phải cập nhật schema thủ công ho
 testnet execution không còn bị block sai
 mainnet vẫn bắt confirm
 3. Live guard fix
+
 is_live_execution_armed() đã sửa:
+
 testnet không cần confirm flag
 mainnet cần confirm flag
 4. Live loop fix
-khi TP2 / SL / TSL hit:
+
+Khi TP2 / SL / TSL hit:
+
 không chỉ đóng DB
 mà gọi close execution thật
 5. DB schema fix
@@ -419,18 +455,100 @@ mà gọi close execution thật
 remaining_qty_after_tp1
 raw_order_response tăng size
 status default = OPEN
+6. Cooldown anomaly fix
+
+Đã gặp lỗi:
+
+Cooldown active (-25199s < 1s)
+
+Đã fix:
+
+outer cooldown guard ở main.py
+runtime guard trong live_trade_service.py
+7. fail_reason overflow fix
+
+Đã gặp lỗi:
+
+Data too long for column 'fail_reason'
+
+Đã fix:
+
+model đổi fail_reason sang Text
+DB alter thủ công:
+ALTER TABLE live_trades MODIFY fail_reason TEXT;
+🧠 STRATEGY CONTEXT (UPDATED)
+Vấn đề cũ
+
+System chạy được nhưng:
+
+trade quá nhiều
+failed trades quá nhiều
+winrate không tốt
+trade signal score thấp
+trade coin volume thấp
+spam alert / spam guard
+
+👉 Kết luận: execution tốt nhưng strategy/filter yếu
+
+Strategy level 2 đã bắt đầu áp dụng
+Mục tiêu:
+trade ít hơn
+signal chất lượng hơn
+giảm spam
+improve winrate
+Các filter đã định hướng / áp dụng:
+score >= 60
+quote_volume_5m >= 150000
+volume_spike_ratio >= 1.5
+atr_ratio >= 0.002
+rr_tp2 >= 2.0
+Strategy phải trả về:
+is_valid
+invalid_reason
+Main flow bắt buộc phải có:
+if not strategy["is_valid"]:
+    continue
+
+❗ Đây là điểm critical.
+Nếu thiếu dòng này → optimize strategy không có tác dụng.
+
+🚫 ANTI-SPAM CONTEXT
+Vấn đề đã thấy
+scanner tạo quá nhiều signal
+bot gửi alert liên tục
+risk layer phải chặn liên tục
+DB/history bị spam
+summary xấu dù engine không lỗi
+Fix đúng hướng
+strategy gate trước khi add alert
+chỉ add new_alerts sau khi pass strategy
+chỉ trade signal đã valid
+hạn chế watchlist rác
+ưu tiên coin top liquidity
 🎯 CURRENT PHASE
 Hiện tại nên làm gì
 Focus hiện tại:
-TESTNET LIVE VALIDATION FOR ~1 WEEK
+
+TESTNET LIVE VALIDATION + STRATEGY OPTIMIZATION
+
 Không nên làm ngay:
+
 MAINNET DEPLOY
+tăng vốn lớn
+tăng trade frequency quá mạnh
 📅 7-DAY TESTNET PLAN CONTEXT
 Day 1
 check /status
 check /live_guard
 check /runtime_status
 check /live_account
+
+Goal:
+
+bot running
+db ok
+binance ok
+live guard armed
 Day 2
 test scanner
 test watchlist
@@ -471,7 +589,9 @@ hỗ trợ debug system
 hỗ trợ triển khai live an toàn
 nhắc lại rule không phá logic
 giữ đúng định hướng phát triển
+ghi rõ rằng phase hiện tại là optimize strategy, không còn chỉ là “engine debug”
 🧱 LOCKED PRINCIPLE
+
 Scanner → AI → Strategy → Risk → Telegram → DB → Trade
 Price → TP1 → Trailing → TP2 / SL
 
@@ -483,19 +603,48 @@ Stable
 paper engine
 scanner
 AI filter
-strategy
+strategy base
 risk
 duplicate guard
 daily loss breaker
 Telegram control
-Armed on testnet
+armed on testnet
 live guard
 runtime guard
 testnet execution permission
 VPS deploy
 live commands
 live sync / detail / close
+TP1 / trailing / close lifecycle
+cooldown anomaly fix
+DB fail_reason fix
 Not yet approved
 mainnet real-money deployment
 high capital scaling
 aggressive trade frequency
+final profitable strategy claim
+high-confidence edge
+🧭 TRUE CURRENT INTERPRETATION
+
+Nếu thấy:
+
+trades cao
+failed cao
+closed thấp
+winrate thấp
+
+👉 Kết luận đúng là:
+
+engine đang chạy
+risk đang chặn đúng
+strategy/filter đang yếu
+
+❌ Không phải do DB cũ
+❌ Không phải do execution layer hỏng
+❌ Không phải do bot “không ổn” ở tầng hạ tầng
+
+🎯 FINAL STATUS
+
+👉 Production-ready paper trading + safe live system + testnet execution ready
+👉 Engine core đã hoàn chỉnh
+👉 Phase hiện tại = optimize strategy / reduce spam / improve winrate
