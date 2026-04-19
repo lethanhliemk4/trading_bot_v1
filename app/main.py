@@ -333,12 +333,20 @@ async def scanner_loop():
                     logger.debug("Cooldown skip %s", symbol)
                     continue
 
-                ai_result = ai_filter_signal(coin)
-                if not ai_result:
-                    logger.info("AI skipped %s", symbol)
-                    continue
+                if getattr(settings, "ENABLE_AI_FILTER", True):
+                    ai_result = ai_filter_signal(coin)
+                    if not ai_result:
+                        logger.info("AI skipped %s", symbol)
+                        continue
 
-                coin["ai"] = ai_result
+                    coin["ai"] = ai_result
+                else:
+                    logger.info("AI filter disabled, bypass %s", symbol)
+                    coin["ai"] = {
+                        "confidence": 100,
+                        "reason": "AI filter disabled",
+                    }
+
                 coin["strategy"] = build_strategy(coin)
 
                 risk = build_risk_plan(coin["strategy"])

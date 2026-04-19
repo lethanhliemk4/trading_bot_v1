@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: str | None = None
 
+    # ===== AI filter config =====
+    ENABLE_AI_FILTER: bool = True
+
     DB_HOST: str = "mysql"
     DB_PORT: int = 3306
     DB_NAME: str = "binance_bot"
