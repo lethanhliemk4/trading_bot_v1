@@ -143,11 +143,13 @@ def get_stats():
 
         avg_max_profit = (
             sum((s.max_profit or 0.0) for s in done_signals) / done_total
-            if done_total else 0.0
+            if done_total
+            else 0.0
         )
         avg_max_drawdown = (
             sum((s.max_drawdown or 0.0) for s in done_signals) / done_total
-            if done_total else 0.0
+            if done_total
+            else 0.0
         )
 
         return {
@@ -165,9 +167,7 @@ def delete_last_signal() -> str | None:
     db = SessionLocal()
     try:
         signal = (
-            db.query(Signal)
-            .order_by(desc(Signal.created_at), desc(Signal.id))
-            .first()
+            db.query(Signal).order_by(desc(Signal.created_at), desc(Signal.id)).first()
         )
         if not signal:
             return None

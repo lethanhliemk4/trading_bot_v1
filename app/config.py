@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     SCANNER_MIN_PRICE_CHANGE_5M: float = 0.1
     SCANNER_MIN_VOLUME_SPIKE_RATIO: float = 1.2
 
+    # ===== Strategy config =====
+    STRATEGY_MIN_SCORE: float = 60.0
+    STRATEGY_MIN_QUOTE_VOLUME_5M: float = 150000.0
+    STRATEGY_MIN_VOLUME_SPIKE_RATIO: float = 1.5
+    STRATEGY_MIN_ATR_RATIO: float = 0.002
+
+    STRATEGY_SL_ATR_MULTIPLIER: float = 1.5
+    STRATEGY_TP1_RR: float = 1.2
+    STRATEGY_TP2_RR: float = 2.0
+
     # ===== Test mode config =====
     TEST_MODE_COOLDOWN_SECONDS: int = 10
 
@@ -121,9 +131,7 @@ class Settings(BaseSettings):
     @property
     def live_allowed_user_id_list(self) -> list[int]:
         return [
-            int(x.strip())
-            for x in self.LIVE_ALLOWED_USER_IDS.split(",")
-            if x.strip()
+            int(x.strip()) for x in self.LIVE_ALLOWED_USER_IDS.split(",") if x.strip()
         ]
 
     @property
@@ -137,10 +145,7 @@ class Settings(BaseSettings):
     @property
     def is_live_trading_active(self) -> bool:
         if self.BINANCE_USE_TESTNET:
-            return (
-                self.ENABLE_LIVE_TRADING
-                and self.LIVE_EXECUTION_ENABLED
-            )
+            return self.ENABLE_LIVE_TRADING and self.LIVE_EXECUTION_ENABLED
 
         return (
             self.ENABLE_LIVE_TRADING
@@ -195,10 +200,14 @@ class Settings(BaseSettings):
             raise ValueError("SCAN_INTERVAL_SECONDS must be greater than 0")
 
         if self.PERFORMANCE_CHECK_INTERVAL_SECONDS <= 0:
-            raise ValueError("PERFORMANCE_CHECK_INTERVAL_SECONDS must be greater than 0")
+            raise ValueError(
+                "PERFORMANCE_CHECK_INTERVAL_SECONDS must be greater than 0"
+            )
 
         if self.PAPER_TRADE_CHECK_INTERVAL_SECONDS <= 0:
-            raise ValueError("PAPER_TRADE_CHECK_INTERVAL_SECONDS must be greater than 0")
+            raise ValueError(
+                "PAPER_TRADE_CHECK_INTERVAL_SECONDS must be greater than 0"
+            )
 
         if self.ALERT_COOLDOWN_SECONDS <= 0:
             raise ValueError("ALERT_COOLDOWN_SECONDS must be greater than 0")
@@ -217,6 +226,27 @@ class Settings(BaseSettings):
 
         if self.SCANNER_MIN_VOLUME_SPIKE_RATIO < 0:
             raise ValueError("SCANNER_MIN_VOLUME_SPIKE_RATIO must be >= 0")
+
+        if self.STRATEGY_MIN_SCORE < 0:
+            raise ValueError("STRATEGY_MIN_SCORE must be >= 0")
+
+        if self.STRATEGY_MIN_QUOTE_VOLUME_5M < 0:
+            raise ValueError("STRATEGY_MIN_QUOTE_VOLUME_5M must be >= 0")
+
+        if self.STRATEGY_MIN_VOLUME_SPIKE_RATIO < 0:
+            raise ValueError("STRATEGY_MIN_VOLUME_SPIKE_RATIO must be >= 0")
+
+        if self.STRATEGY_MIN_ATR_RATIO < 0:
+            raise ValueError("STRATEGY_MIN_ATR_RATIO must be >= 0")
+
+        if self.STRATEGY_SL_ATR_MULTIPLIER <= 0:
+            raise ValueError("STRATEGY_SL_ATR_MULTIPLIER must be greater than 0")
+
+        if self.STRATEGY_TP1_RR <= 0:
+            raise ValueError("STRATEGY_TP1_RR must be greater than 0")
+
+        if self.STRATEGY_TP2_RR <= 0:
+            raise ValueError("STRATEGY_TP2_RR must be greater than 0")
 
         if self.TEST_MODE_COOLDOWN_SECONDS <= 0:
             raise ValueError("TEST_MODE_COOLDOWN_SECONDS must be greater than 0")

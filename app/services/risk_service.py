@@ -146,11 +146,7 @@ def get_today_live_trade_count() -> int:
 def get_open_live_trades_count() -> int:
     db = SessionLocal()
     try:
-        return int(
-            db.query(LiveTrade)
-            .filter(LiveTrade.status == "OPEN")
-            .count()
-        )
+        return int(db.query(LiveTrade).filter(LiveTrade.status == "OPEN").count())
     finally:
         db.close()
 
@@ -258,10 +254,10 @@ def calculate_position_size(
     }
 
 
-def build_risk_plan(strategy: dict) -> dict | None:
+def build_risk_plan_with_reason(strategy: dict) -> tuple[dict | None, str | None]:
     ok, reason = validate_strategy(strategy)
     if not ok:
-        return None
+        return None, reason
 
     capital = get_capital()
     risk_percent = get_risk_percent()
@@ -278,7 +274,7 @@ def build_risk_plan(strategy: dict) -> dict | None:
         risk_percent=risk_percent,
     )
     if not sizing:
-        return None
+        return None, "Position sizing failed"
 
     ok, reason = validate_risk_limits(
         symbol=symbol,
@@ -286,7 +282,7 @@ def build_risk_plan(strategy: dict) -> dict | None:
         risk_amount=float(sizing["risk_amount"]),
     )
     if not ok:
-        return None
+        return None, reason
 
     tp1 = float(strategy["tp1"])
     tp2 = float(strategy["tp2"])
@@ -294,8 +290,12 @@ def build_risk_plan(strategy: dict) -> dict | None:
     reward_tp1 = abs(tp1 - entry)
     reward_tp2 = abs(tp2 - entry)
 
-    rr_tp1 = reward_tp1 / sizing["stop_distance"] if sizing["stop_distance"] > 0 else 0.0
-    rr_tp2 = reward_tp2 / sizing["stop_distance"] if sizing["stop_distance"] > 0 else 0.0
+    rr_tp1 = (
+        reward_tp1 / sizing["stop_distance"] if sizing["stop_distance"] > 0 else 0.0
+    )
+    rr_tp2 = (
+        reward_tp2 / sizing["stop_distance"] if sizing["stop_distance"] > 0 else 0.0
+    )
 
     return {
         "capital": float(sizing["capital"]),
@@ -312,7 +312,13 @@ def build_risk_plan(strategy: dict) -> dict | None:
         "side": side,
         "rr_tp1": float(rr_tp1),
         "rr_tp2": float(rr_tp2),
-    }
+        "reason": None,
+    }, None
+
+
+def build_risk_plan(strategy: dict) -> dict | None:
+    plan, _ = build_risk_plan_with_reason(strategy)
+    return plan
 
 
 def get_risk_summary() -> dict:

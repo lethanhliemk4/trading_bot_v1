@@ -152,7 +152,9 @@ async def scan_market():
         logger.info(f"Using watchlist symbols: {symbols}")
     else:
         all_symbols = await get_usdt_symbols()
-        symbols = random.sample(all_symbols, min(MAX_SYMBOLS_PER_SCAN, len(all_symbols)))
+        symbols = random.sample(
+            all_symbols, min(MAX_SYMBOLS_PER_SCAN, len(all_symbols))
+        )
         logger.info(
             "Using random symbols count: %s | app_mode=%s",
             len(symbols),

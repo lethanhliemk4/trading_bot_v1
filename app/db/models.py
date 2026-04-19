@@ -49,7 +49,9 @@ class BotState(Base):
     trade_mode = Column(String(20), nullable=False, default="OFF")
     auto_trade_enabled = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class PaperTrade(Base):
@@ -85,7 +87,9 @@ class PaperTrade(Base):
     realized_pnl = Column(Float, default=0.0)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     closed_at = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -147,7 +151,9 @@ class LiveTrade(Base):
     raw_order_response = Column(String(10000), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     opened_at = Column(DateTime(timezone=True), nullable=True)
     closed_at = Column(DateTime(timezone=True), nullable=True)
 

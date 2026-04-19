@@ -111,13 +111,11 @@ async def _retry_async(
 def _count_today_live_trades() -> int:
     db = SessionLocal()
     try:
-        start_of_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-
-        return (
-            db.query(LiveTrade)
-            .filter(LiveTrade.created_at >= start_of_day)
-            .count()
+        start_of_day = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
         )
+
+        return db.query(LiveTrade).filter(LiveTrade.created_at >= start_of_day).count()
     finally:
         db.close()
 
@@ -125,11 +123,7 @@ def _count_today_live_trades() -> int:
 def _get_last_live_trade_time():
     db = SessionLocal()
     try:
-        trade = (
-            db.query(LiveTrade)
-            .order_by(LiveTrade.created_at.desc())
-            .first()
-        )
+        trade = db.query(LiveTrade).order_by(LiveTrade.created_at.desc()).first()
         return trade.created_at if trade else None
     finally:
         db.close()
@@ -138,7 +132,10 @@ def _get_last_live_trade_time():
 def _validate_runtime_live_guards() -> tuple[bool, str | None]:
     today_count = _count_today_live_trades()
     if today_count >= settings.LIVE_MAX_TRADES_PER_DAY:
-        return False, f"Daily trade limit reached ({today_count}/{settings.LIVE_MAX_TRADES_PER_DAY})"
+        return (
+            False,
+            f"Daily trade limit reached ({today_count}/{settings.LIVE_MAX_TRADES_PER_DAY})",
+        )
 
     last_trade_time = _get_last_live_trade_time()
     if last_trade_time:
@@ -245,7 +242,9 @@ def validate_live_inputs(strategy: dict, risk: dict) -> tuple[bool, str | None]:
     return True, None
 
 
-async def validate_live_balance(required_notional: float) -> tuple[bool, str | None, dict]:
+async def validate_live_balance(
+    required_notional: float,
+) -> tuple[bool, str | None, dict]:
     free_usdt = await get_balance("USDT")
 
     if free_usdt < settings.LIVE_MIN_FREE_USDT:
@@ -329,7 +328,9 @@ async def build_live_order_preview(strategy: dict, risk: dict) -> dict:
 
     notional_ok = False
     notional_reason = None
-    calculated_notional = normalized_qty * entry if normalized_qty > 0 and entry > 0 else 0.0
+    calculated_notional = (
+        normalized_qty * entry if normalized_qty > 0 and entry > 0 else 0.0
+    )
 
     if valid and normalized_ok:
         try:
@@ -350,7 +351,9 @@ async def build_live_order_preview(strategy: dict, risk: dict) -> dict:
     balance_reason = None
     balance_info = {
         "free_usdt": 0.0,
-        "required_notional": calculated_notional if calculated_notional > 0 else notional,
+        "required_notional": (
+            calculated_notional if calculated_notional > 0 else notional
+        ),
     }
 
     if valid and normalized_ok and notional_ok:
@@ -421,7 +424,9 @@ def save_live_trade(
         )
         remaining_qty = max(final_requested_qty - executed_qty, 0.0)
 
-        order_status = str((order_response or {}).get("status")) if order_response else None
+        order_status = (
+            str((order_response or {}).get("status")) if order_response else None
+        )
         entry_submitted_at = now if order_response else None
         entry_filled_at = now if executed_qty > 0 else None
 
@@ -442,8 +447,14 @@ def save_live_trade(
             executed_qty=executed_qty,
             remaining_qty=remaining_qty,
             avg_fill_price=_safe_float((order_response or {}).get("avgPrice", 0)),
-            entry_order_id=str((order_response or {}).get("orderId")) if order_response else None,
-            entry_client_order_id=str((order_response or {}).get("clientOrderId")) if order_response else None,
+            entry_order_id=(
+                str((order_response or {}).get("orderId")) if order_response else None
+            ),
+            entry_client_order_id=(
+                str((order_response or {}).get("clientOrderId"))
+                if order_response
+                else None
+            ),
             entry_order_status=order_status,
             status=status,
             fail_reason=fail_reason,
@@ -518,10 +529,7 @@ def get_latest_live_trades(limit: int = 20):
     db = SessionLocal()
     try:
         return (
-            db.query(LiveTrade)
-            .order_by(LiveTrade.created_at.desc())
-            .limit(limit)
-            .all()
+            db.query(LiveTrade).order_by(LiveTrade.created_at.desc()).limit(limit).all()
         )
     finally:
         db.close()
@@ -611,7 +619,11 @@ def close_live_trade(
         if exit_price <= 0:
             return None
 
-        size = trade.remaining_qty if trade.remaining_qty is not None else trade.executed_qty
+        size = (
+            trade.remaining_qty
+            if trade.remaining_qty is not None
+            else trade.executed_qty
+        )
         if size is None or size <= 0:
             size = trade.executed_qty
 
@@ -684,16 +696,22 @@ def get_live_trade_stats() -> dict:
 
 def _sync_live_trade_order_data(trade: LiveTrade, order_data: dict):
     executed_qty = _safe_float(order_data.get("executedQty"), trade.executed_qty or 0.0)
-    avg_fill_price = _safe_float(order_data.get("avgPrice"), trade.avg_fill_price or 0.0)
+    avg_fill_price = _safe_float(
+        order_data.get("avgPrice"), trade.avg_fill_price or 0.0
+    )
 
     if avg_fill_price <= 0:
         cummulative_quote_qty = _safe_float(order_data.get("cummulativeQuoteQty"), 0.0)
         if executed_qty > 0 and cummulative_quote_qty > 0:
             avg_fill_price = cummulative_quote_qty / executed_qty
 
-    trade.entry_order_status = str(order_data.get("status", trade.entry_order_status or ""))
+    trade.entry_order_status = str(
+        order_data.get("status", trade.entry_order_status or "")
+    )
     trade.executed_qty = executed_qty
-    trade.avg_fill_price = avg_fill_price if avg_fill_price > 0 else trade.avg_fill_price
+    trade.avg_fill_price = (
+        avg_fill_price if avg_fill_price > 0 else trade.avg_fill_price
+    )
 
     requested_qty = _safe_float(trade.requested_qty, 0.0)
     if requested_qty > 0:
@@ -951,7 +969,9 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
             "required_notional": required_notional,
         }
 
-    balance_ok, balance_reason, balance_info = await validate_live_balance(required_notional)
+    balance_ok, balance_reason, balance_info = await validate_live_balance(
+        required_notional
+    )
     if not balance_ok:
         save_live_trade(
             strategy,
@@ -1177,7 +1197,9 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
         avg_exit_price = _safe_float(exit_order.get("avgPrice"), 0.0)
 
         if avg_exit_price <= 0:
-            cummulative_quote_qty = _safe_float(exit_order.get("cummulativeQuoteQty"), 0.0)
+            cummulative_quote_qty = _safe_float(
+                exit_order.get("cummulativeQuoteQty"), 0.0
+            )
             if executed_qty > 0 and cummulative_quote_qty > 0:
                 avg_exit_price = cummulative_quote_qty / executed_qty
 
@@ -1202,8 +1224,16 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
         trade.exit_price = avg_exit_price
         trade.result_percent = result_percent
         trade.close_reason = "MANUAL_EXIT"
-        trade.exit_order_id = str(exit_order.get("orderId")) if exit_order.get("orderId") is not None else None
-        trade.exit_order_status = str(exit_order.get("status")) if exit_order.get("status") is not None else None
+        trade.exit_order_id = (
+            str(exit_order.get("orderId"))
+            if exit_order.get("orderId") is not None
+            else None
+        )
+        trade.exit_order_status = (
+            str(exit_order.get("status"))
+            if exit_order.get("status") is not None
+            else None
+        )
         trade.status = "CLOSED"
         trade.remaining_qty = 0.0
         trade.closed_at = _utcnow()

@@ -145,7 +145,9 @@ async def _get(
         params["recvWindow"] = _stringify_param_value(settings.BINANCE_RECV_WINDOW_MS)
         params = _sign_params(params)
 
-    async with httpx.AsyncClient(timeout=settings.BINANCE_HTTP_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(
+        timeout=settings.BINANCE_HTTP_TIMEOUT_SECONDS
+    ) as client:
         response = await client.get(
             url,
             params=params,
@@ -169,7 +171,9 @@ async def _post(
         params["recvWindow"] = _stringify_param_value(settings.BINANCE_RECV_WINDOW_MS)
         params = _sign_params(params)
 
-    async with httpx.AsyncClient(timeout=settings.BINANCE_HTTP_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(
+        timeout=settings.BINANCE_HTTP_TIMEOUT_SECONDS
+    ) as client:
         response = await client.post(
             url,
             params=params,
@@ -193,7 +197,9 @@ async def _delete(
         params["recvWindow"] = _stringify_param_value(settings.BINANCE_RECV_WINDOW_MS)
         params = _sign_params(params)
 
-    async with httpx.AsyncClient(timeout=settings.BINANCE_HTTP_TIMEOUT_SECONDS) as client:
+    async with httpx.AsyncClient(
+        timeout=settings.BINANCE_HTTP_TIMEOUT_SECONDS
+    ) as client:
         response = await client.delete(
             url,
             params=params,
@@ -325,7 +331,9 @@ async def get_symbol_trading_rules(symbol: str) -> dict | None:
     }
 
 
-async def normalize_order_quantity(symbol: str, quantity: float, is_market_order: bool = True) -> dict | None:
+async def normalize_order_quantity(
+    symbol: str, quantity: float, is_market_order: bool = True
+) -> dict | None:
     rules = await get_symbol_trading_rules(symbol)
     if not rules:
         return None
@@ -344,8 +352,12 @@ async def normalize_order_quantity(symbol: str, quantity: float, is_market_order
 
     if is_market_order and rules["market_step_size"] > 0:
         step_size = rules["market_step_size"]
-        min_qty = rules["market_min_qty"] if rules["market_min_qty"] > 0 else rules["min_qty"]
-        max_qty = rules["market_max_qty"] if rules["market_max_qty"] > 0 else rules["max_qty"]
+        min_qty = (
+            rules["market_min_qty"] if rules["market_min_qty"] > 0 else rules["min_qty"]
+        )
+        max_qty = (
+            rules["market_max_qty"] if rules["market_max_qty"] > 0 else rules["max_qty"]
+        )
     else:
         step_size = rules["step_size"]
         min_qty = rules["min_qty"]
@@ -415,7 +427,9 @@ async def normalize_order_price(symbol: str, price: float) -> dict | None:
         }
 
     tick_size = rules["tick_size"]
-    normalized_price = _floor_to_step(raw_price, tick_size) if tick_size > 0 else raw_price
+    normalized_price = (
+        _floor_to_step(raw_price, tick_size) if tick_size > 0 else raw_price
+    )
 
     if normalized_price <= 0:
         return {
@@ -461,7 +475,9 @@ async def normalize_order_price(symbol: str, price: float) -> dict | None:
     }
 
 
-async def validate_min_notional(symbol: str, quantity: float, reference_price: float) -> dict | None:
+async def validate_min_notional(
+    symbol: str, quantity: float, reference_price: float
+) -> dict | None:
     rules = await get_symbol_trading_rules(symbol)
     if not rules:
         return None

@@ -73,6 +73,14 @@ PENDING_LIVE_CONFIRMATIONS: dict[int, float] = {}
 CONFIRM_TTL_SECONDS = 120
 LIVE_CONFIRM_TTL_SECONDS = 120
 
+STRATEGY_STATS = {
+    "score_low": 0,
+    "volume_low": 0,
+    "spike_low": 0,
+    "atr_low": 0,
+    "other": 0,
+}
+
 
 def is_allowed(user_id: int) -> bool:
     return user_id in ALLOWED_IDS
@@ -204,7 +212,9 @@ def format_alert_message(signal: dict) -> str:
     risk = signal.get("risk")
     if risk:
         lines.append(f"   💰 Capital: {risk['capital']:.2f} USDT")
-        lines.append(f"   ⚠️ Risk: {risk['risk_percent']:.2f}% = {risk['risk_amount']:.2f} USDT")
+        lines.append(
+            f"   ⚠️ Risk: {risk['risk_percent']:.2f}% = {risk['risk_amount']:.2f} USDT"
+        )
         lines.append(f"   📦 Position Size: {risk['position_size']:.6f}")
         lines.append(f"   💵 Notional: {risk['notional']:.2f} USDT")
 
@@ -248,11 +258,13 @@ def format_ai_test_result(symbol: str, signal: dict, ai_result: dict | None) -> 
     ]
 
     if ai_result:
-        lines.extend([
-            f"Decision: {ai_result['decision']}",
-            f"Confidence: {ai_result['confidence']:.0f}%",
-            f"Reason: {ai_result['reason']}",
-        ])
+        lines.extend(
+            [
+                f"Decision: {ai_result['decision']}",
+                f"Confidence: {ai_result['confidence']:.0f}%",
+                f"Reason: {ai_result['reason']}",
+            ]
+        )
     else:
         lines.append("Decision: SKIP or AI rejected signal")
 
@@ -389,7 +401,9 @@ async def confirm_live(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not pop_valid_live_confirmation(user_id):
-        await update.message.reply_text("❌ No valid LIVE confirmation or confirmation expired")
+        await update.message.reply_text(
+            "❌ No valid LIVE confirmation or confirmation expired"
+        )
         return
 
     state = set_trade_mode("LIVE")
@@ -425,13 +439,17 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: /confirm paper_reset|paper_clear|clear_signals")
+        await update.message.reply_text(
+            "Usage: /confirm paper_reset|paper_clear|clear_signals"
+        )
         return
 
     action = context.args[0].strip().lower()
 
     if not pop_valid_confirmation(user_id, action):
-        await update.message.reply_text("❌ No valid pending confirmation or confirmation expired")
+        await update.message.reply_text(
+            "❌ No valid pending confirmation or confirmation expired"
+        )
         return
 
     if action == "paper_reset":
@@ -472,7 +490,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/healthcheck - Check Telegram + DB + Binance\n"
         "/help - Show all commands\n"
         "/balance - Show USDT balance\n"
-        "/runtime_status - Show runtime guard settings\n\n"
+        "/runtime_status - Show runtime guard settings\n"
+        "/strategy_stats - Show strategy reject statistics\n\n"
         "/mode off|paper|live - Set trade mode\n"
         "/confirm_live - Confirm LIVE mode\n"
         "/panic - Turn auto trade off immediately\n"
@@ -593,7 +612,35 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
-async def delete_last_signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def strategy_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    total = sum(STRATEGY_STATS.values())
+
+    if total == 0:
+        await update.message.reply_text("📊 No strategy stats yet")
+        return
+
+    msg = (
+        "📊 STRATEGY STATS\n\n"
+        f"Total Rejected: {total}\n\n"
+        f"Score Low: {STRATEGY_STATS['score_low']}\n"
+        f"Volume Low: {STRATEGY_STATS['volume_low']}\n"
+        f"Spike Low: {STRATEGY_STATS['spike_low']}\n"
+        f"ATR Low: {STRATEGY_STATS['atr_low']}\n"
+        f"Other: {STRATEGY_STATS['other']}\n"
+    )
+
+    await update.message.reply_text(msg)
+
+
+async def delete_last_signal_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
     user_id = update.effective_user.id
     if not is_allowed(user_id):
         await update.message.reply_text("❌ Unauthorized")
@@ -615,8 +662,7 @@ async def clear_signals_command(update: Update, context: ContextTypes.DEFAULT_TY
 
     set_confirmation(user_id, "clear_signals")
     await update.message.reply_text(
-        "⚠️ Confirm clear all signals\n\n"
-        "Run:\n/confirm clear_signals"
+        "⚠️ Confirm clear all signals\n\n" "Run:\n/confirm clear_signals"
     )
 
 
@@ -676,8 +722,7 @@ async def paper_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     set_confirmation(user_id, "paper_clear")
     await update.message.reply_text(
-        "⚠️ Confirm clear all paper trades\n\n"
-        "Run:\n/confirm paper_clear"
+        "⚠️ Confirm clear all paper trades\n\n" "Run:\n/confirm paper_clear"
     )
 
 
@@ -917,7 +962,9 @@ async def scanall(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     symbols = get_watchlist_symbols()
     if not symbols:
-        await update.message.reply_text("📌 Watchlist is empty. Add coins first with /watchadd BTCUSDT")
+        await update.message.reply_text(
+            "📌 Watchlist is empty. Add coins first with /watchadd BTCUSDT"
+        )
         return
 
     await update.message.reply_text(f"📡 Scanning watchlist... ({len(symbols)} coins)")
@@ -952,7 +999,9 @@ async def aitest(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await scan_one(symbol)
 
     if not result:
-        await update.message.reply_text(f"{symbol}: no base signal to send to AI right now")
+        await update.message.reply_text(
+            f"{symbol}: no base signal to send to AI right now"
+        )
         return
 
     ai_result = ai_filter_signal(result)
@@ -1017,21 +1066,25 @@ async def forcealert(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚠️ Trade already open for {result['symbol']}, skipping"
             )
         else:
-            trade = create_paper_trade({
-                "symbol": result["symbol"],
-                "side": result["strategy"]["side"],
-                "entry_price": result["strategy"]["entry"],
-                "sl": result["strategy"]["sl"],
-                "tp1": result["strategy"]["tp1"],
-                "tp2": result["strategy"]["tp2"],
-                "rr": result["strategy"]["rr"],
-                "risk_amount": result["risk"]["risk_amount"],
-                "position_size": result["risk"]["position_size"],
-                "notional": result["risk"]["notional"],
-            })
+            trade = create_paper_trade(
+                {
+                    "symbol": result["symbol"],
+                    "side": result["strategy"]["side"],
+                    "entry_price": result["strategy"]["entry"],
+                    "sl": result["strategy"]["sl"],
+                    "tp1": result["strategy"]["tp1"],
+                    "tp2": result["strategy"]["tp2"],
+                    "rr": result["strategy"]["rr"],
+                    "risk_amount": result["risk"]["risk_amount"],
+                    "position_size": result["risk"]["position_size"],
+                    "notional": result["risk"]["notional"],
+                }
+            )
 
             if not trade:
-                await update.message.reply_text("⚠️ Paper trade rejected (risk or duplicate)")
+                await update.message.reply_text(
+                    "⚠️ Paper trade rejected (risk or duplicate)"
+                )
                 return
 
             await update.message.reply_text(
@@ -1076,10 +1129,16 @@ async def runtime_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         live_armed, live_reason = safe_get_live_execution_state()
         live_risk = get_live_risk_summary()
 
-        live_trade_cooldown_seconds = getattr(settings, "LIVE_TRADE_COOLDOWN_SECONDS", 60)
-        heartbeat_interval_seconds = getattr(settings, "HEARTBEAT_INTERVAL_SECONDS", 300)
+        live_trade_cooldown_seconds = getattr(
+            settings, "LIVE_TRADE_COOLDOWN_SECONDS", 60
+        )
+        heartbeat_interval_seconds = getattr(
+            settings, "HEARTBEAT_INTERVAL_SECONDS", 300
+        )
         watchdog_interval_seconds = getattr(settings, "WATCHDOG_INTERVAL_SECONDS", 60)
-        loop_stale_threshold_seconds = getattr(settings, "LOOP_STALE_THRESHOLD_SECONDS", 600)
+        loop_stale_threshold_seconds = getattr(
+            settings, "LOOP_STALE_THRESHOLD_SECONDS", 600
+        )
 
         msg = (
             "🧰 RUNTIME STATUS\n\n"
@@ -1334,8 +1393,7 @@ async def live_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await update.message.reply_text(
-            "❌ LIVE ACCOUNT FAILED\n\n"
-            f"Reason: {str(e)}"
+            "❌ LIVE ACCOUNT FAILED\n\n" f"Reason: {str(e)}"
         )
 
 
@@ -1385,10 +1443,7 @@ async def live_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Env: {'TESTNET' if settings.BINANCE_USE_TESTNET else 'MAINNET'}"
         )
     except Exception as e:
-        await update.message.reply_text(
-            "❌ LIVE SYNC FAILED\n\n"
-            f"Reason: {str(e)}"
-        )
+        await update.message.reply_text("❌ LIVE SYNC FAILED\n\n" f"Reason: {str(e)}")
 
 
 async def live_sync_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1433,8 +1488,7 @@ async def live_sync_one(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         await update.message.reply_text(
-            "❌ LIVE SYNC ONE FAILED\n\n"
-            f"Reason: {str(e)}"
+            "❌ LIVE SYNC ONE FAILED\n\n" f"Reason: {str(e)}"
         )
 
 
@@ -1488,10 +1542,7 @@ async def live_close_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Env: {'TESTNET' if result.get('binance_use_testnet') else 'MAINNET'}"
         )
     except Exception as e:
-        await update.message.reply_text(
-            "❌ LIVE CLOSE FAILED\n\n"
-            f"Reason: {str(e)}"
-        )
+        await update.message.reply_text("❌ LIVE CLOSE FAILED\n\n" f"Reason: {str(e)}")
 
 
 async def live_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1582,6 +1633,7 @@ def create_bot():
     app.add_handler(CommandHandler("history", history))
     app.add_handler(CommandHandler("top", top))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("strategy_stats", strategy_stats))
     app.add_handler(CommandHandler("delete_last_signal", delete_last_signal_command))
     app.add_handler(CommandHandler("clear_signals", clear_signals_command))
     app.add_handler(CommandHandler("paper_open", paper_open))

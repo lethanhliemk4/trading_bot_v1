@@ -127,11 +127,7 @@ def get_latest_paper_trades(limit: int = 20):
 def get_all_paper_trades():
     db = SessionLocal()
     try:
-        return (
-            db.query(PaperTrade)
-            .order_by(PaperTrade.created_at.desc())
-            .all()
-        )
+        return db.query(PaperTrade).order_by(PaperTrade.created_at.desc()).all()
     finally:
         db.close()
 
@@ -240,7 +236,9 @@ def update_paper_trade_trailing_sl(trade_id: int, trailing_sl: float):
         db.close()
 
 
-def close_paper_trade(trade_id: int, exit_price: float, result_percent: float, close_reason: str):
+def close_paper_trade(
+    trade_id: int, exit_price: float, result_percent: float, close_reason: str
+):
     db = SessionLocal()
     try:
         trade = db.query(PaperTrade).filter(PaperTrade.id == trade_id).first()
@@ -253,7 +251,11 @@ def close_paper_trade(trade_id: int, exit_price: float, result_percent: float, c
         if exit_price <= 0:
             return None
 
-        size = trade.remaining_size if trade.remaining_size is not None else trade.position_size
+        size = (
+            trade.remaining_size
+            if trade.remaining_size is not None
+            else trade.position_size
+        )
         if size is None or size <= 0:
             return None
 
@@ -332,11 +334,7 @@ def get_paper_equity() -> dict:
     try:
         start_capital = settings.RISK_CAPITAL_USDT
 
-        closed_trades = (
-            db.query(PaperTrade)
-            .filter(PaperTrade.status == "CLOSED")
-            .all()
-        )
+        closed_trades = db.query(PaperTrade).filter(PaperTrade.status == "CLOSED").all()
 
         realized_pnl = sum((t.realized_pnl or 0.0) for t in closed_trades)
         closed_count = len(closed_trades)
@@ -395,61 +393,65 @@ def export_paper_trades_csv(output_dir: str = "/tmp") -> str | None:
 
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "id",
-            "symbol",
-            "side",
-            "entry_price",
-            "sl",
-            "tp1",
-            "tp2",
-            "rr",
-            "risk_amount",
-            "position_size",
-            "notional",
-            "status",
-            "exit_price",
-            "result_percent",
-            "close_reason",
-            "tp1_hit",
-            "tp1_hit_at",
-            "trailing_sl",
-            "trailing_active",
-            "tp1_closed_size",
-            "remaining_size",
-            "realized_pnl",
-            "created_at",
-            "updated_at",
-            "closed_at",
-        ])
+        writer.writerow(
+            [
+                "id",
+                "symbol",
+                "side",
+                "entry_price",
+                "sl",
+                "tp1",
+                "tp2",
+                "rr",
+                "risk_amount",
+                "position_size",
+                "notional",
+                "status",
+                "exit_price",
+                "result_percent",
+                "close_reason",
+                "tp1_hit",
+                "tp1_hit_at",
+                "trailing_sl",
+                "trailing_active",
+                "tp1_closed_size",
+                "remaining_size",
+                "realized_pnl",
+                "created_at",
+                "updated_at",
+                "closed_at",
+            ]
+        )
 
         for t in trades:
-            writer.writerow([
-                t.id,
-                t.symbol,
-                t.side,
-                t.entry_price,
-                t.sl,
-                t.tp1,
-                t.tp2,
-                t.rr,
-                t.risk_amount,
-                t.position_size,
-                t.notional,
-                t.status,
-                t.exit_price,
-                t.result_percent,
-                t.close_reason,
-                t.tp1_hit,
-                t.tp1_hit_at,
-                t.trailing_sl,
-                t.trailing_active,
-                t.tp1_closed_size,
-                t.remaining_size,
-                t.realized_pnl,
-                t.created_at,
-                t.updated_at,
-                t.closed_at,
-            ])
+            writer.writerow(
+                [
+                    t.id,
+                    t.symbol,
+                    t.side,
+                    t.entry_price,
+                    t.sl,
+                    t.tp1,
+                    t.tp2,
+                    t.rr,
+                    t.risk_amount,
+                    t.position_size,
+                    t.notional,
+                    t.status,
+                    t.exit_price,
+                    t.result_percent,
+                    t.close_reason,
+                    t.tp1_hit,
+                    t.tp1_hit_at,
+                    t.trailing_sl,
+                    t.trailing_active,
+                    t.tp1_closed_size,
+                    t.remaining_size,
+                    t.realized_pnl,
+                    t.created_at,
+                    t.updated_at,
+                    t.closed_at,
+                ]
+            )
 
     return filepath
