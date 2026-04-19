@@ -145,7 +145,19 @@ def _validate_runtime_live_guards() -> tuple[bool, str | None]:
         if last_trade_time.tzinfo is None:
             last_trade_time = last_trade_time.replace(tzinfo=timezone.utc)
 
-        seconds_since_last = (datetime.now(timezone.utc) - last_trade_time).total_seconds()
+        now_utc = datetime.now(timezone.utc)
+        seconds_since_last = (now_utc - last_trade_time).total_seconds()
+
+        # FIX BUG: future timestamp / timezone anomaly
+        if seconds_since_last < 0:
+            logger.warning(
+                "Runtime guard cooldown anomaly detected | last_trade_time=%s | now=%s | seconds_since_last=%.2f | ignoring cooldown once",
+                last_trade_time,
+                now_utc,
+                seconds_since_last,
+            )
+            seconds_since_last = settings.LIVE_TRADE_COOLDOWN_SECONDS + 1
+
         if seconds_since_last < settings.LIVE_TRADE_COOLDOWN_SECONDS:
             return False, (
                 f"Cooldown active ({int(seconds_since_last)}s < "
