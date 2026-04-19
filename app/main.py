@@ -415,11 +415,22 @@ async def scanner_loop():
                             continue
 
                         now_ts = time.time()
-                        if now_ts - live_last_trade_time < LIVE_TRADE_COOLDOWN_SECONDS:
+                        elapsed = now_ts - live_last_trade_time
+
+                        if elapsed < 0:
+                            logger.warning(
+                                "Cooldown anomaly detected (future timestamp) | resetting | last=%s now=%s",
+                                live_last_trade_time,
+                                now_ts,
+                            )
+                            live_last_trade_time = 0
+                            elapsed = now_ts
+
+                        if elapsed < LIVE_TRADE_COOLDOWN_SECONDS:
                             logger.info(
                                 "LIVE COOLDOWN ACTIVE | skip %s | remaining=%.1fs",
                                 coin["symbol"],
-                                LIVE_TRADE_COOLDOWN_SECONDS - (now_ts - live_last_trade_time),
+                                LIVE_TRADE_COOLDOWN_SECONDS - elapsed,
                             )
                             continue
 
@@ -1166,6 +1177,7 @@ async def lifespan(app: FastAPI):
     global telegram_app, market_task, scanner_task, performance_task, paper_trade_task, live_trade_task, heartbeat_task, watchdog_task
     global scanner_loop_last_seen, paper_trade_loop_last_seen, live_trade_loop_last_seen, performance_loop_last_seen
     global scanner_stale_alert_sent, paper_trade_stale_alert_sent, live_trade_stale_alert_sent, performance_stale_alert_sent
+    global live_last_trade_time
 
     logger.info("Starting app | env=%s | mode=%s", settings.APP_ENV, settings.APP_MODE)
 
@@ -1182,6 +1194,7 @@ async def lifespan(app: FastAPI):
     paper_trade_loop_last_seen = now_ts
     live_trade_loop_last_seen = now_ts
     performance_loop_last_seen = now_ts
+    live_last_trade_time = 0
 
     scanner_stale_alert_sent = False
     paper_trade_stale_alert_sent = False
