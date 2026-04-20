@@ -134,6 +134,7 @@ def get_today_live_trade_count() -> int:
             db.query(LiveTrade)
             .filter(
                 LiveTrade.created_at >= start_of_day,
+                LiveTrade.status.in_(["OPEN", "CLOSED"]),
             )
             .count()
         )

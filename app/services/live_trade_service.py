@@ -115,7 +115,14 @@ def _count_today_live_trades() -> int:
             hour=0, minute=0, second=0, microsecond=0
         )
 
-        return db.query(LiveTrade).filter(LiveTrade.created_at >= start_of_day).count()
+        return (
+            db.query(LiveTrade)
+            .filter(
+                LiveTrade.created_at >= start_of_day,
+                LiveTrade.status.in_(["OPEN", "CLOSED"]),
+            )
+            .count()
+        )
     finally:
         db.close()
 
@@ -123,7 +130,12 @@ def _count_today_live_trades() -> int:
 def _get_last_live_trade_time():
     db = SessionLocal()
     try:
-        trade = db.query(LiveTrade).order_by(LiveTrade.created_at.desc()).first()
+        trade = (
+            db.query(LiveTrade)
+            .filter(LiveTrade.status.in_(["OPEN", "CLOSED"]))
+            .order_by(LiveTrade.created_at.desc())
+            .first()
+        )
         return trade.created_at if trade else None
     finally:
         db.close()
@@ -145,7 +157,6 @@ def _validate_runtime_live_guards() -> tuple[bool, str | None]:
         now_utc = datetime.now(timezone.utc)
         seconds_since_last = (now_utc - last_trade_time).total_seconds()
 
-        # FIX BUG: future timestamp / timezone anomaly
         if seconds_since_last < 0:
             logger.warning(
                 "Runtime guard cooldown anomaly detected | last_trade_time=%s | now=%s | seconds_since_last=%.2f | ignoring cooldown once",
@@ -174,8 +185,6 @@ def is_live_execution_armed() -> tuple[bool, str | None]:
     if not settings.LIVE_EXECUTION_ENABLED:
         return False, "LIVE_EXECUTION_ENABLED is false"
 
-    # Testnet: cho phép execution mà không cần confirm flag
-    # Mainnet: vẫn bắt buộc confirm để tránh bắn lệnh thật ngoài ý muốn
     if not settings.BINANCE_USE_TESTNET:
         if not settings.LIVE_CONFIRM_REAL_ORDERS:
             return False, "LIVE_CONFIRM_REAL_ORDERS is false"
@@ -812,14 +821,6 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
 
     runtime_ok, runtime_reason = _validate_runtime_live_guards()
     if not runtime_ok:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            runtime_reason,
-            requested_qty=_safe_float(risk.get("position_size")),
-        )
         return {
             "ok": False,
             "stage": "runtime_guard",
@@ -841,14 +842,6 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
     binance_side = _strategy_side_to_binance_side(side)
 
     if has_open_live_trade(symbol):
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            f"Duplicate live trade blocked for {symbol}",
-            requested_qty=_safe_float(risk.get("position_size")),
-        )
         return {
             "ok": False,
             "stage": "duplicate",
@@ -953,14 +946,6 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
         risk_amount=risk_amount,
     )
     if not live_risk_ok:
-        save_live_trade(
-            strategy,
-            risk,
-            None,
-            "FAILED",
-            live_risk_reason,
-            requested_qty=qty,
-        )
         return {
             "ok": False,
             "stage": "live_risk",
