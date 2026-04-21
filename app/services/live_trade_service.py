@@ -76,6 +76,14 @@ def _should_retry_exception(exc: Exception) -> bool:
     return any(keyword in text for keyword in retry_keywords)
 
 
+def _format_order_quantity(qty: float) -> str:
+    qty = _safe_float(qty)
+    if qty <= 0:
+        return "0"
+
+    return format(qty, "f").rstrip("0").rstrip(".")
+
+
 async def _retry_async(
     func,
     *args,
@@ -325,7 +333,7 @@ async def build_live_order_preview(strategy: dict, risk: dict) -> dict:
             if normalized and normalized.get("ok"):
                 normalized_ok = True
                 normalized_qty = _safe_float(normalized.get("normalized_quantity"))
-                normalized_qty_str = str(normalized.get("normalized_quantity_str", "0"))
+                normalized_qty_str = _format_order_quantity(normalized_qty)
             else:
                 normalized_reason = (
                     normalized.get("reason")
@@ -839,6 +847,15 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
 
     symbol = _normalize_symbol(strategy["symbol"])
     side = _normalize_side(strategy["side"])
+
+    if side == "SHORT":
+        return {
+            "ok": False,
+            "stage": "validation",
+            "reason": "SHORT is not supported on Binance spot live trading",
+            "symbol": symbol,
+        }
+
     binance_side = _strategy_side_to_binance_side(side)
 
     if has_open_live_trade(symbol):
@@ -887,9 +904,9 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
         }
 
     qty = _safe_float(normalized.get("normalized_quantity"))
-    qty_str = str(normalized.get("normalized_quantity_str", "0"))
+    qty_str = _format_order_quantity(qty)
 
-    if qty <= 0:
+    if qty <= 0 or qty_str == "0":
         save_live_trade(
             strategy,
             risk,
@@ -1142,9 +1159,9 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
             }
 
         qty = _safe_float(normalized.get("normalized_quantity"))
-        qty_str = str(normalized.get("normalized_quantity_str", "0"))
+        qty_str = _format_order_quantity(qty)
 
-        if qty <= 0:
+        if qty <= 0 or qty_str == "0":
             return {
                 "ok": False,
                 "stage": "quantity",
