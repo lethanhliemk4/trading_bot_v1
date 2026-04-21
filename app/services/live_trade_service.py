@@ -7,6 +7,7 @@ from app.market.rest_client import (
     get_account_info,
     get_balance,
     get_order,
+    get_symbol_trading_rules,
     place_market_order,
     normalize_order_quantity,
     validate_min_notional,
@@ -71,6 +72,8 @@ def _should_retry_exception(exc: Exception) -> bool:
         "503",
         "504",
         "429",
+        "insufficient balance",
+        "account has insufficient balance",
     ]
 
     return any(keyword in text for keyword in retry_keywords)
@@ -82,6 +85,16 @@ def _format_order_quantity(qty: float) -> str:
         return "0"
 
     return format(qty, "f").rstrip("0").rstrip(".")
+
+
+def _extract_asset_free_balance(account: dict, asset: str) -> float:
+    asset = str(asset).upper().strip()
+
+    for balance in account.get("balances", []):
+        if str(balance.get("asset", "")).upper().strip() == asset:
+            return _safe_float(balance.get("free"))
+
+    return 0.0
 
 
 async def _retry_async(
@@ -292,6 +305,102 @@ async def validate_live_balance(
             "required_notional": required_notional,
         },
     )
+
+
+async def _get_symbol_base_asset(symbol: str) -> str | None:
+    rules = await get_symbol_trading_rules(symbol)
+    if not rules:
+        return None
+
+    base_asset = str(rules.get("base_asset") or "").upper().strip()
+    return base_asset or None
+
+
+async def _get_free_symbol_asset_balance(symbol: str) -> tuple[float, str | None]:
+    base_asset = await _get_symbol_base_asset(symbol)
+    if not base_asset:
+        return 0.0, None
+
+    account = await get_account_info()
+    free_qty = _extract_asset_free_balance(account, base_asset)
+    return free_qty, base_asset
+
+
+async def _build_exit_quantity(symbol: str, requested_qty: float) -> dict:
+    requested_qty = _safe_float(requested_qty)
+    if requested_qty <= 0:
+        return {
+            "ok": False,
+            "reason": "Requested exit quantity invalid",
+            "requested_qty": requested_qty,
+            "available_qty": 0.0,
+            "normalized_qty": 0.0,
+            "normalized_qty_str": "0",
+            "base_asset": None,
+        }
+
+    free_qty, base_asset = await _get_free_symbol_asset_balance(symbol)
+    if free_qty <= 0:
+        return {
+            "ok": False,
+            "reason": "No free asset balance available to exit",
+            "requested_qty": requested_qty,
+            "available_qty": free_qty,
+            "normalized_qty": 0.0,
+            "normalized_qty_str": "0",
+            "base_asset": base_asset,
+        }
+
+    sellable_qty = min(requested_qty, free_qty)
+
+    normalized = await normalize_order_quantity(symbol, sellable_qty)
+    if not normalized:
+        return {
+            "ok": False,
+            "reason": "normalize quantity failed during exit",
+            "requested_qty": requested_qty,
+            "available_qty": free_qty,
+            "normalized_qty": 0.0,
+            "normalized_qty_str": "0",
+            "base_asset": base_asset,
+        }
+
+    if not normalized.get("ok"):
+        return {
+            "ok": False,
+            "reason": normalized.get("reason"),
+            "requested_qty": requested_qty,
+            "available_qty": free_qty,
+            "normalized_qty": _safe_float(normalized.get("normalized_quantity")),
+            "normalized_qty_str": _format_order_quantity(
+                _safe_float(normalized.get("normalized_quantity"))
+            ),
+            "base_asset": base_asset,
+        }
+
+    normalized_qty = _safe_float(normalized.get("normalized_quantity"))
+    normalized_qty_str = _format_order_quantity(normalized_qty)
+
+    if normalized_qty <= 0 or normalized_qty_str == "0":
+        return {
+            "ok": False,
+            "reason": "Exit quantity became zero after normalization",
+            "requested_qty": requested_qty,
+            "available_qty": free_qty,
+            "normalized_qty": normalized_qty,
+            "normalized_qty_str": normalized_qty_str,
+            "base_asset": base_asset,
+        }
+
+    return {
+        "ok": True,
+        "reason": None,
+        "requested_qty": requested_qty,
+        "available_qty": free_qty,
+        "normalized_qty": normalized_qty,
+        "normalized_qty_str": normalized_qty_str,
+        "base_asset": base_asset,
+    }
 
 
 async def get_live_account_snapshot() -> dict:
@@ -1123,6 +1232,8 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
                 db.commit()
                 db.refresh(trade)
 
+        await asyncio.sleep(1.5)
+
         symbol = _normalize_symbol(trade.symbol)
         exit_side = _live_side_to_exit_binance_side(trade.side)
 
@@ -1139,126 +1250,154 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
                 "symbol": symbol,
             }
 
-        normalized = await normalize_order_quantity(symbol, raw_qty)
-        if not normalized:
-            return {
-                "ok": False,
-                "stage": "quantity",
-                "reason": "normalize quantity failed",
-                "trade_id": trade_id,
-                "symbol": symbol,
-            }
+        last_error = None
 
-        if not normalized.get("ok"):
-            return {
-                "ok": False,
-                "stage": "quantity",
-                "reason": normalized.get("reason"),
-                "trade_id": trade_id,
-                "symbol": symbol,
-            }
+        for attempt in range(3):
+            try:
+                exit_qty_info = await _build_exit_quantity(symbol, raw_qty)
+                if not exit_qty_info.get("ok"):
+                    last_error = exit_qty_info.get("reason")
+                    logger.warning(
+                        "Exit quantity build failed for %s (attempt %s/3): %s",
+                        symbol,
+                        attempt + 1,
+                        last_error,
+                    )
+                    await asyncio.sleep(1.5)
+                    continue
 
-        qty = _safe_float(normalized.get("normalized_quantity"))
-        qty_str = _format_order_quantity(qty)
+                qty = _safe_float(exit_qty_info.get("normalized_qty"))
+                qty_str = str(exit_qty_info.get("normalized_qty_str", "0")).strip()
 
-        if qty <= 0 or qty_str == "0":
-            return {
-                "ok": False,
-                "stage": "quantity",
-                "reason": "normalized quantity invalid",
-                "trade_id": trade_id,
-                "symbol": symbol,
-            }
+                if qty <= 0 or qty_str == "0":
+                    last_error = "normalized exit quantity invalid"
+                    await asyncio.sleep(1.5)
+                    continue
 
-        try:
-            exit_order = await _retry_async(
-                place_market_order,
-                symbol=symbol,
-                side=exit_side,
-                quantity=qty_str,
-                retries=2,
-                delay_seconds=1.0,
-                operation_name="execute_live_close_market_order.place_market_order",
-            )
-        except Exception as e:
-            trade.fail_reason = f"close order error: {e}"
-            trade.last_synced_at = _utcnow()
-            db.commit()
-            db.refresh(trade)
-            return {
-                "ok": False,
-                "stage": "order",
-                "reason": str(e),
-                "trade_id": trade_id,
-                "symbol": symbol,
-                "qty": qty,
-                "qty_str": qty_str,
-            }
+                logger.warning(
+                    "[LIVE EXIT] %s %s | qty=%s | attempt=%s/3 | base_asset=%s | available_qty=%.8f",
+                    symbol,
+                    exit_side,
+                    qty_str,
+                    attempt + 1,
+                    exit_qty_info.get("base_asset"),
+                    _safe_float(exit_qty_info.get("available_qty")),
+                )
 
-        executed_qty = _safe_float(exit_order.get("executedQty"), qty)
-        avg_exit_price = _safe_float(exit_order.get("avgPrice"), 0.0)
+                exit_order = await _retry_async(
+                    place_market_order,
+                    symbol=symbol,
+                    side=exit_side,
+                    quantity=qty_str,
+                    retries=1,
+                    delay_seconds=1.0,
+                    operation_name="execute_live_close_market_order.place_market_order",
+                )
 
-        if avg_exit_price <= 0:
-            cummulative_quote_qty = _safe_float(
-                exit_order.get("cummulativeQuoteQty"), 0.0
-            )
-            if executed_qty > 0 and cummulative_quote_qty > 0:
-                avg_exit_price = cummulative_quote_qty / executed_qty
+                executed_qty = _safe_float(exit_order.get("executedQty"), qty)
+                avg_exit_price = _safe_float(exit_order.get("avgPrice"), 0.0)
 
-        if avg_exit_price <= 0:
-            avg_exit_price = _safe_float(trade.avg_fill_price, trade.entry_price)
+                if avg_exit_price <= 0:
+                    cummulative_quote_qty = _safe_float(
+                        exit_order.get("cummulativeQuoteQty"), 0.0
+                    )
+                    if executed_qty > 0 and cummulative_quote_qty > 0:
+                        avg_exit_price = cummulative_quote_qty / executed_qty
 
-        entry_price = _safe_float(trade.avg_fill_price)
-        if entry_price <= 0:
-            entry_price = _safe_float(trade.entry_price)
+                if avg_exit_price <= 0:
+                    avg_exit_price = _safe_float(trade.avg_fill_price, trade.entry_price)
 
-        if entry_price <= 0:
-            entry_price = 1.0
+                entry_price = _safe_float(trade.avg_fill_price)
+                if entry_price <= 0:
+                    entry_price = _safe_float(trade.entry_price)
 
-        if trade.side == "LONG":
-            realized_pnl = executed_qty * (avg_exit_price - entry_price)
-            result_percent = ((avg_exit_price - entry_price) / entry_price) * 100
-        else:
-            realized_pnl = executed_qty * (entry_price - avg_exit_price)
-            result_percent = ((entry_price - avg_exit_price) / entry_price) * 100
+                if entry_price <= 0:
+                    entry_price = 1.0
 
-        trade.realized_pnl = (trade.realized_pnl or 0.0) + realized_pnl
-        trade.exit_price = avg_exit_price
-        trade.result_percent = result_percent
-        trade.close_reason = "MANUAL_EXIT"
-        trade.exit_order_id = (
-            str(exit_order.get("orderId"))
-            if exit_order.get("orderId") is not None
-            else None
-        )
-        trade.exit_order_status = (
-            str(exit_order.get("status"))
-            if exit_order.get("status") is not None
-            else None
-        )
-        trade.status = "CLOSED"
-        trade.remaining_qty = 0.0
-        trade.closed_at = _utcnow()
-        trade.last_synced_at = _utcnow()
+                if trade.side == "LONG":
+                    realized_pnl = executed_qty * (avg_exit_price - entry_price)
+                    result_percent = ((avg_exit_price - entry_price) / entry_price) * 100
+                else:
+                    realized_pnl = executed_qty * (entry_price - avg_exit_price)
+                    result_percent = ((entry_price - avg_exit_price) / entry_price) * 100
 
-        db.commit()
-        db.refresh(trade)
+                trade.realized_pnl = (trade.realized_pnl or 0.0) + realized_pnl
+                trade.exit_price = avg_exit_price
+                trade.result_percent = result_percent
+                trade.close_reason = "MANUAL_EXIT"
+                trade.exit_order_id = (
+                    str(exit_order.get("orderId"))
+                    if exit_order.get("orderId") is not None
+                    else None
+                )
+                trade.exit_order_status = (
+                    str(exit_order.get("status"))
+                    if exit_order.get("status") is not None
+                    else None
+                )
+                trade.status = "CLOSED"
+                trade.remaining_qty = 0.0
+                trade.closed_at = _utcnow()
+                trade.last_synced_at = _utcnow()
+
+                db.commit()
+                db.refresh(trade)
+
+                return {
+                    "ok": True,
+                    "stage": "submitted",
+                    "reason": None,
+                    "trade_id": trade.id,
+                    "symbol": trade.symbol,
+                    "exit_side": exit_side,
+                    "qty": qty,
+                    "qty_str": qty_str,
+                    "executed_qty": executed_qty,
+                    "exit_price": avg_exit_price,
+                    "result_percent": result_percent,
+                    "realized_pnl": realized_pnl,
+                    "binance_use_testnet": bool(settings.BINANCE_USE_TESTNET),
+                    "order": exit_order,
+                }
+
+            except Exception as e:
+                last_error = str(e)
+                trade.fail_reason = f"close order error attempt {attempt + 1}: {e}"
+                trade.last_synced_at = _utcnow()
+                db.commit()
+                db.refresh(trade)
+
+                logger.warning(
+                    "Exit order failed for %s (attempt %s/3): %s",
+                    symbol,
+                    attempt + 1,
+                    e,
+                )
+
+                await asyncio.sleep(1.5)
+
+                try:
+                    if trade.entry_order_id:
+                        order_data = await _retry_async(
+                            get_order,
+                            trade.symbol,
+                            trade.entry_order_id,
+                            retries=1,
+                            delay_seconds=0.5,
+                            operation_name="execute_live_close_market_order.resync_after_fail",
+                        )
+                        _sync_live_trade_order_data(trade, order_data)
+                        db.commit()
+                        db.refresh(trade)
+                except Exception:
+                    pass
 
         return {
-            "ok": True,
-            "stage": "submitted",
-            "reason": None,
-            "trade_id": trade.id,
-            "symbol": trade.symbol,
-            "exit_side": exit_side,
-            "qty": qty,
-            "qty_str": qty_str,
-            "executed_qty": executed_qty,
-            "exit_price": avg_exit_price,
-            "result_percent": result_percent,
-            "realized_pnl": realized_pnl,
-            "binance_use_testnet": bool(settings.BINANCE_USE_TESTNET),
-            "order": exit_order,
+            "ok": False,
+            "stage": "order",
+            "reason": str(last_error or "exit order failed"),
+            "trade_id": trade_id,
+            "symbol": symbol,
         }
     finally:
         db.close()
