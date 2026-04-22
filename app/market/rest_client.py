@@ -131,6 +131,30 @@ def _sign_params(params: dict) -> dict:
     return params
 
 
+def _parse_binance_error(response: httpx.Response) -> str:
+    try:
+        data = response.json()
+        code = data.get("code")
+        msg = data.get("msg")
+
+        if code is not None or msg:
+            return f"Binance error {code}: {msg}"
+    except Exception:
+        pass
+
+    text = ""
+    try:
+        text = response.text[:200]
+    except Exception:
+        text = ""
+
+    return f"HTTP {response.status_code}: {text}"
+
+
+def _raise_binance_error(response: httpx.Response):
+    raise Exception(_parse_binance_error(response))
+
+
 async def _get(
     path: str,
     params: Optional[dict] = None,
@@ -153,7 +177,10 @@ async def _get(
             params=params,
             headers=_get_headers(),
         )
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            _raise_binance_error(response)
+
         return response.json()
 
 
@@ -179,7 +206,10 @@ async def _post(
             params=params,
             headers=_get_headers(),
         )
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            _raise_binance_error(response)
+
         return response.json()
 
 
@@ -205,7 +235,10 @@ async def _delete(
             params=params,
             headers=_get_headers(),
         )
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            _raise_binance_error(response)
+
         return response.json()
 
 
