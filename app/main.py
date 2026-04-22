@@ -317,6 +317,11 @@ def _update_strategy_stats(reason: str | None) -> None:
         STRATEGY_STATS["other"] += 1
 
 
+def _get_symbol_whitelist() -> set[str]:
+    raw = str(getattr(settings, "WHITELIST_SYMBOLS", "") or "")
+    return {s.strip().upper() for s in raw.split(",") if s.strip()}
+
+
 async def scanner_loop():
     global telegram_app
     global last_alerts
@@ -479,9 +484,33 @@ async def scanner_loop():
                         )
 
                     elif mode["trade_mode"] == "LIVE" and mode["auto_trade_enabled"]:
+                        # 🚫 HARDENING: block SHORT for spot live
+                        if coin["strategy"]["side"] == "SHORT":
+                            logger.info("Skip SHORT in LIVE spot: %s", coin["symbol"])
+                            continue
+
+                        # 🚫 HARDENING: whitelist filter if enabled
+                        if getattr(settings, "ENABLE_SYMBOL_WHITELIST", False):
+                            whitelist = _get_symbol_whitelist()
+                            if whitelist and coin["symbol"].upper() not in whitelist:
+                                logger.info(
+                                    "Skip non-whitelist symbol in LIVE: %s",
+                                    coin["symbol"],
+                                )
+                                continue
+
                         if coin["symbol"].upper() in open_live_symbols:
                             logger.info(
                                 "Skip duplicate live trade for %s",
+                                coin["symbol"],
+                            )
+                            continue
+
+                        # 🚫 HARDENING: prevent over-trading explicitly
+                        open_live_trades_now = get_open_live_trades(limit=100)
+                        if len(open_live_trades_now) >= settings.LIVE_MAX_OPEN_TRADES:
+                            logger.info(
+                                "Max open live trades reached, skip %s",
                                 coin["symbol"],
                             )
                             continue
@@ -505,6 +534,18 @@ async def scanner_loop():
                                 LIVE_TRADE_COOLDOWN_SECONDS - elapsed,
                             )
                             continue
+
+                        # 🚫 HARDENING: skip if price deviates too far from strategy entry
+                        current_price = await get_symbol_price(coin["symbol"])
+                        if current_price and coin["strategy"]["entry"] > 0:
+                            deviation = abs(current_price - coin["strategy"]["entry"]) / coin["strategy"]["entry"]
+                            if deviation > 0.01:
+                                logger.info(
+                                    "Skip %s due to price deviation %.4f",
+                                    coin["symbol"],
+                                    deviation,
+                                )
+                                continue
 
                         try:
                             logger.info("🚨 LIVE TRADE TRIGGER %s", coin["symbol"])
@@ -886,7 +927,8 @@ async def live_trade_loop():
                     )
                 live_error_count = 0
             except Exception as e:
-                logger.exception("Live trade sync error: %s", e)
+                # HARDENING: keep log clean, no stacktrace spam for sync noise
+                logger.warning("Live sync warning (ignored): %s", e)
 
                 live_error_count += 1
 
@@ -998,8 +1040,15 @@ async def live_trade_loop():
 
                     if price <= effective_sl:
                         reason = "TSL" if trade.trailing_active else "SL"
-                        closed_result = await execute_live_close_market_order(trade.id)
-                        if closed_result.get("ok"):
+
+                        closed_result = None
+                        for _ in range(2):
+                            closed_result = await execute_live_close_market_order(trade.id)
+                            if closed_result.get("ok"):
+                                break
+                            await asyncio.sleep(1.5)
+
+                        if closed_result and closed_result.get("ok"):
                             await send_message(
                                 telegram_app,
                                 format_live_close_message(
@@ -1018,25 +1067,32 @@ async def live_trade_loop():
                                 "LIVE CLOSE FAILED %s | trade_id=%s | stage=%s | reason=%s",
                                 trade.symbol,
                                 trade.id,
-                                closed_result.get("stage"),
-                                closed_result.get("reason"),
+                                closed_result.get("stage") if closed_result else "close",
+                                closed_result.get("reason") if closed_result else "close failed",
                             )
-                            await send_message(
-                                telegram_app,
-                                format_live_fail_message(
-                                    trade.symbol,
-                                    str(closed_result.get("stage", "close")),
-                                    str(
-                                        closed_result.get(
-                                            "reason", "close failed"
-                                        )
+                            if live_error_count <= 1:
+                                await send_message(
+                                    telegram_app,
+                                    format_live_fail_message(
+                                        trade.symbol,
+                                        str(closed_result.get("stage", "close") if closed_result else "close"),
+                                        str(
+                                            closed_result.get(
+                                                "reason", "close failed"
+                                            ) if closed_result else "close failed"
+                                        ),
                                     ),
-                                ),
-                            )
+                                )
 
                     elif price >= trade.tp2:
-                        closed_result = await execute_live_close_market_order(trade.id)
-                        if closed_result.get("ok"):
+                        closed_result = None
+                        for _ in range(2):
+                            closed_result = await execute_live_close_market_order(trade.id)
+                            if closed_result.get("ok"):
+                                break
+                            await asyncio.sleep(1.5)
+
+                        if closed_result and closed_result.get("ok"):
                             await send_message(
                                 telegram_app,
                                 format_live_close_message(
@@ -1055,21 +1111,22 @@ async def live_trade_loop():
                                 "LIVE CLOSE FAILED %s | trade_id=%s | stage=%s | reason=%s",
                                 trade.symbol,
                                 trade.id,
-                                closed_result.get("stage"),
-                                closed_result.get("reason"),
+                                closed_result.get("stage") if closed_result else "close",
+                                closed_result.get("reason") if closed_result else "close failed",
                             )
-                            await send_message(
-                                telegram_app,
-                                format_live_fail_message(
-                                    trade.symbol,
-                                    str(closed_result.get("stage", "close")),
-                                    str(
-                                        closed_result.get(
-                                            "reason", "close failed"
-                                        )
+                            if live_error_count <= 1:
+                                await send_message(
+                                    telegram_app,
+                                    format_live_fail_message(
+                                        trade.symbol,
+                                        str(closed_result.get("stage", "close") if closed_result else "close"),
+                                        str(
+                                            closed_result.get(
+                                                "reason", "close failed"
+                                            ) if closed_result else "close failed"
+                                        ),
                                     ),
-                                ),
-                            )
+                                )
 
                 else:
                     result_percent = (
@@ -1137,8 +1194,15 @@ async def live_trade_loop():
 
                     if price >= effective_sl:
                         reason = "TSL" if trade.trailing_active else "SL"
-                        closed_result = await execute_live_close_market_order(trade.id)
-                        if closed_result.get("ok"):
+
+                        closed_result = None
+                        for _ in range(2):
+                            closed_result = await execute_live_close_market_order(trade.id)
+                            if closed_result.get("ok"):
+                                break
+                            await asyncio.sleep(1.5)
+
+                        if closed_result and closed_result.get("ok"):
                             await send_message(
                                 telegram_app,
                                 format_live_close_message(
@@ -1157,25 +1221,32 @@ async def live_trade_loop():
                                 "LIVE CLOSE FAILED %s | trade_id=%s | stage=%s | reason=%s",
                                 trade.symbol,
                                 trade.id,
-                                closed_result.get("stage"),
-                                closed_result.get("reason"),
+                                closed_result.get("stage") if closed_result else "close",
+                                closed_result.get("reason") if closed_result else "close failed",
                             )
-                            await send_message(
-                                telegram_app,
-                                format_live_fail_message(
-                                    trade.symbol,
-                                    str(closed_result.get("stage", "close")),
-                                    str(
-                                        closed_result.get(
-                                            "reason", "close failed"
-                                        )
+                            if live_error_count <= 1:
+                                await send_message(
+                                    telegram_app,
+                                    format_live_fail_message(
+                                        trade.symbol,
+                                        str(closed_result.get("stage", "close") if closed_result else "close"),
+                                        str(
+                                            closed_result.get(
+                                                "reason", "close failed"
+                                            ) if closed_result else "close failed"
+                                        ),
                                     ),
-                                ),
-                            )
+                                )
 
                     elif price <= trade.tp2:
-                        closed_result = await execute_live_close_market_order(trade.id)
-                        if closed_result.get("ok"):
+                        closed_result = None
+                        for _ in range(2):
+                            closed_result = await execute_live_close_market_order(trade.id)
+                            if closed_result.get("ok"):
+                                break
+                            await asyncio.sleep(1.5)
+
+                        if closed_result and closed_result.get("ok"):
                             await send_message(
                                 telegram_app,
                                 format_live_close_message(
@@ -1194,21 +1265,22 @@ async def live_trade_loop():
                                 "LIVE CLOSE FAILED %s | trade_id=%s | stage=%s | reason=%s",
                                 trade.symbol,
                                 trade.id,
-                                closed_result.get("stage"),
-                                closed_result.get("reason"),
+                                closed_result.get("stage") if closed_result else "close",
+                                closed_result.get("reason") if closed_result else "close failed",
                             )
-                            await send_message(
-                                telegram_app,
-                                format_live_fail_message(
-                                    trade.symbol,
-                                    str(closed_result.get("stage", "close")),
-                                    str(
-                                        closed_result.get(
-                                            "reason", "close failed"
-                                        )
+                            if live_error_count <= 1:
+                                await send_message(
+                                    telegram_app,
+                                    format_live_fail_message(
+                                        trade.symbol,
+                                        str(closed_result.get("stage", "close") if closed_result else "close"),
+                                        str(
+                                            closed_result.get(
+                                                "reason", "close failed"
+                                            ) if closed_result else "close failed"
+                                        ),
                                     ),
-                                ),
-                            )
+                                )
 
             if trades:
                 live_error_count = 0
@@ -1370,6 +1442,11 @@ async def watchdog_loop():
 
                 if age_seconds > LOOP_STALE_THRESHOLD_SECONDS:
                     if not alert_sent:
+                        logger.warning(
+                            "WATCHDOG ALERT: %s stale %.1fs",
+                            loop_name,
+                            age_seconds,
+                        )
                         await send_message(
                             telegram_app,
                             format_watchdog_alert_message(loop_name, age_seconds),
