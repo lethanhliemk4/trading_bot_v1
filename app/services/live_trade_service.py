@@ -79,6 +79,19 @@ def _should_retry_exception(exc: Exception) -> bool:
     return any(keyword in text for keyword in retry_keywords)
 
 
+def _is_ignorable_binance_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+
+    ignore_patterns = [
+        "order does not exist",
+        "unknown order sent",
+        "order not found",
+        "invalid order",
+    ]
+
+    return any(pattern in text for pattern in ignore_patterns)
+
+
 def _format_order_quantity(qty: float) -> str:
     qty = _safe_float(qty)
     if qty <= 0:
@@ -872,8 +885,16 @@ async def sync_live_trade_order(trade_id: int):
                 operation_name="sync_live_trade_order.get_order",
             )
         except Exception as e:
+            if _is_ignorable_binance_error(e):
+                logger.info("Ignore single sync error %s: %s", trade.symbol, e)
+                trade.last_synced_at = _utcnow()
+                db.commit()
+                db.refresh(trade)
+                return trade
+
             trade.fail_reason = f"sync error: {e}"
             trade.last_synced_at = _utcnow()
+            logger.warning("Sync error %s: %s", trade.symbol, e)
             db.commit()
             db.refresh(trade)
             return trade
@@ -913,8 +934,14 @@ async def sync_open_live_trades():
                     operation_name="sync_open_live_trades.get_order",
                 )
             except Exception as e:
+                if _is_ignorable_binance_error(e):
+                    logger.info("Ignore sync error for %s: %s", trade.symbol, e)
+                    trade.last_synced_at = _utcnow()
+                    continue
+
                 trade.fail_reason = f"sync error: {e}"
                 trade.last_synced_at = _utcnow()
+                logger.warning("Sync error for %s: %s", trade.symbol, e)
                 continue
 
             _sync_live_trade_order_data(trade, order_data)
@@ -1165,7 +1192,10 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
             finally:
                 db.close()
     except Exception as e:
-        logger.warning("Post-order sync failed for %s: %s", symbol, e)
+        if _is_ignorable_binance_error(e):
+            logger.info("Ignore post-order sync error for %s: %s", symbol, e)
+        else:
+            logger.warning("Post-order sync failed for %s: %s", symbol, e)
 
     return {
         "ok": True,
@@ -1227,8 +1257,13 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
                 db.commit()
                 db.refresh(trade)
             except Exception as e:
-                trade.fail_reason = f"pre-close sync error: {e}"
-                trade.last_synced_at = _utcnow()
+                if _is_ignorable_binance_error(e):
+                    logger.info("Ignore pre-close sync error %s: %s", trade.symbol, e)
+                    trade.last_synced_at = _utcnow()
+                else:
+                    trade.fail_reason = f"pre-close sync error: {e}"
+                    trade.last_synced_at = _utcnow()
+                    logger.warning("Pre-close sync error %s: %s", trade.symbol, e)
                 db.commit()
                 db.refresh(trade)
 
@@ -1361,6 +1396,11 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
                 }
 
             except Exception as e:
+                if _is_ignorable_binance_error(e):
+                    logger.info("Ignore close error %s: %s", symbol, e)
+                    await asyncio.sleep(1.5)
+                    continue
+
                 last_error = str(e)
                 trade.fail_reason = f"close order error attempt {attempt + 1}: {e}"
                 trade.last_synced_at = _utcnow()
@@ -1389,8 +1429,19 @@ async def execute_live_close_market_order(trade_id: int) -> dict:
                         _sync_live_trade_order_data(trade, order_data)
                         db.commit()
                         db.refresh(trade)
-                except Exception:
-                    pass
+                except Exception as resync_error:
+                    if _is_ignorable_binance_error(resync_error):
+                        logger.info(
+                            "Ignore resync-after-fail error %s: %s",
+                            trade.symbol,
+                            resync_error,
+                        )
+                    else:
+                        logger.warning(
+                            "Resync-after-fail error %s: %s",
+                            trade.symbol,
+                            resync_error,
+                        )
 
         return {
             "ok": False,
