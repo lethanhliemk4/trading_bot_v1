@@ -507,7 +507,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/live_close_test 123 - Close one live trade by ID\n"
         "/live_detail 123 - Show one live trade detail\n"
         "/live_account - Show live account snapshot\n"
-        "/live_guard - Show live safety guard status\n\n"
+        "/live_guard - Show live safety guard status\n"
+        "/close_all - Close all open live trades\n"
+        "/panic_close_all - Close all open live trades, then panic mode\n\n"
         "/history - Show latest signals\n"
         "/top - Show top scored signals\n"
         "/stats - Show performance stats\n"
@@ -1238,6 +1240,7 @@ async def live_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "🚨 OPEN LIVE TRADES\n\n"
     for t in trades:
         msg += (
+            f"ID: {t.id}\n"
             f"{t.symbol} | {t.side} | {t.environment}\n"
             f"Entry: {t.entry_price:.6f}\n"
             f"Req Qty: {t.requested_qty:.8f} | Exec Qty: {t.executed_qty:.8f}\n"
@@ -1264,8 +1267,11 @@ async def live_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "📊 LIVE TRADE HISTORY\n\n"
     for t in trades:
         status_icon = "🟢" if t.status == "OPEN" else "🔴"
+        msg += f"ID: {t.id}\n"
         msg += f"{status_icon} {t.symbol} | {t.side} | {t.status}\n"
-        msg += f"Env: {t.environment} | Req: {t.requested_qty:.8f} | Exec: {t.executed_qty:.8f}\n"
+        msg += (
+            f"Env: {t.environment} | Req: {t.requested_qty:.8f} | Exec: {t.executed_qty:.8f}\n"
+        )
         if t.result_percent is not None:
             msg += f"Result: {t.result_percent:+.2f}%\n"
         if t.fail_reason:
@@ -1545,6 +1551,127 @@ async def live_close_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ LIVE CLOSE FAILED\n\n" f"Reason: {str(e)}")
 
 
+async def close_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE close")
+        return
+
+    trades = get_open_live_trades()
+    if not trades:
+        await update.message.reply_text("📭 No open live trades to close")
+        return
+
+    await update.message.reply_text(
+        f"🚨 Closing all open live trades... ({len(trades)} trades)"
+    )
+
+    closed_count = 0
+    failed_count = 0
+    lines = []
+
+    for trade in trades:
+        try:
+            result = await execute_live_close_market_order(trade.id)
+
+            if result.get("ok"):
+                closed_count += 1
+                lines.append(
+                    f"✅ #{trade.id} {trade.symbol} | "
+                    f"{result.get('result_percent', 0.0):+.2f}% | "
+                    f"{result.get('realized_pnl', 0.0):+.4f} USDT"
+                )
+            else:
+                failed_count += 1
+                lines.append(
+                    f"❌ #{trade.id} {trade.symbol} | "
+                    f"{result.get('stage', '-')} | "
+                    f"{result.get('reason', 'unknown error')}"
+                )
+        except Exception as e:
+            failed_count += 1
+            lines.append(f"❌ #{trade.id} {trade.symbol} | exception | {str(e)}")
+
+    msg = (
+        "🧹 CLOSE ALL RESULT\n\n"
+        f"Closed: {closed_count}\n"
+        f"Failed: {failed_count}\n\n"
+    )
+
+    if lines:
+        msg += "\n".join(lines[:20])
+
+    await update.message.reply_text(msg)
+
+
+async def panic_close_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not is_live_allowed(user_id):
+        await update.message.reply_text("❌ Not allowed for LIVE close")
+        return
+
+    trades = get_open_live_trades()
+
+    closed_count = 0
+    failed_count = 0
+    lines = []
+
+    if trades:
+        await update.message.reply_text(
+            f"🚨 PANIC CLOSE ALL started... ({len(trades)} trades)"
+        )
+
+        for trade in trades:
+            try:
+                result = await execute_live_close_market_order(trade.id)
+
+                if result.get("ok"):
+                    closed_count += 1
+                    lines.append(
+                        f"✅ #{trade.id} {trade.symbol} | "
+                        f"{result.get('result_percent', 0.0):+.2f}% | "
+                        f"{result.get('realized_pnl', 0.0):+.4f} USDT"
+                    )
+                else:
+                    failed_count += 1
+                    lines.append(
+                        f"❌ #{trade.id} {trade.symbol} | "
+                        f"{result.get('stage', '-')} | "
+                        f"{result.get('reason', 'unknown error')}"
+                    )
+            except Exception as e:
+                failed_count += 1
+                lines.append(f"❌ #{trade.id} {trade.symbol} | exception | {str(e)}")
+    else:
+        lines.append("ℹ️ No open live trades found")
+
+    state = panic_stop()
+    PENDING_LIVE_CONFIRMATIONS.pop(user_id, None)
+
+    msg = (
+        "🛑 PANIC CLOSE ALL RESULT\n\n"
+        f"Mode: {state['trade_mode']}\n"
+        f"Auto trade: {'ON' if state['auto_trade_enabled'] else 'OFF'}\n"
+        f"Closed: {closed_count}\n"
+        f"Failed: {failed_count}\n\n"
+    )
+
+    if lines:
+        msg += "\n".join(lines[:20])
+
+    await update.message.reply_text(msg)
+
+
 async def live_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -1666,6 +1793,8 @@ def create_bot():
     app.add_handler(CommandHandler("live_sync", live_sync))
     app.add_handler(CommandHandler("live_sync_one", live_sync_one))
     app.add_handler(CommandHandler("live_close_test", live_close_test))
+    app.add_handler(CommandHandler("close_all", close_all))
+    app.add_handler(CommandHandler("panic_close_all", panic_close_all))
     app.add_handler(CommandHandler("live_detail", live_detail))
 
     return app
