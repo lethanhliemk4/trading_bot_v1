@@ -41,6 +41,28 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: binance-bot-dashboard
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+      NUXT_PUBLIC_API_BASE: http://app:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - bot_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   mysql:
     image: mysql:8.0
     container_name: binance-bot-mysql

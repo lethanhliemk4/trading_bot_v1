@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
+from app.api.dashboard import router as dashboard_router
 from app.config import get_settings
 from app.logger import configure_logging
 from app.telegram.bot import create_bot, send_message, STRATEGY_STATS
@@ -1538,4 +1539,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Binance Bot", lifespan=lifespan)
+
 app.include_router(health_router)
+app.include_router(dashboard_router)
