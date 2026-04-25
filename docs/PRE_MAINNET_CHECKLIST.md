@@ -9,6 +9,74 @@
 
 ---
 
+# 0. DASHBOARD / NGINX / ACCESS CHECK
+
+## 0.1 Dashboard files
+
+- [ ] đã tạo thư mục `dashboard/`
+- [ ] đã tạo `dashboard/package.json`
+- [ ] đã tạo `dashboard/nuxt.config.ts`
+- [ ] đã tạo `dashboard/app.vue`
+- [ ] đã tạo `dashboard/assets/css/main.css`
+- [ ] đã tạo `dashboard/Dockerfile`
+- [ ] đã tạo các page dashboard:
+  - [ ] `dashboard/pages/index.vue`
+  - [ ] `dashboard/pages/live-trades.vue`
+  - [ ] `dashboard/pages/signals.vue`
+  - [ ] `dashboard/pages/risk.vue`
+  - [ ] `dashboard/pages/logs.vue`
+  - [ ] `dashboard/pages/settings.vue`
+  - [ ] `dashboard/pages/paper-trades.vue`
+
+## 0.2 Dashboard docker service
+
+- [ ] `docker-compose.yml` đã có service `dashboard`
+- [ ] `binance-bot-dashboard` đang `Up`
+- [ ] dashboard bind nội bộ: `127.0.0.1:3000:3000`
+- [ ] dashboard gọi backend bằng `NUXT_PUBLIC_API_BASE=http://app:8000`
+- [ ] không expose dashboard public trực tiếp bằng `0.0.0.0:3000`
+
+## 0.3 Dashboard API
+
+- [ ] `app/services/dashboard_service.py` đã tạo
+- [ ] `app/api/dashboard.py` đã tạo
+- [ ] `app/main.py` đã include dashboard router
+- [ ] endpoint `/api/dashboard/overview` OK
+- [ ] endpoint `/api/dashboard/live-trades` OK
+- [ ] endpoint `/api/dashboard/open-live-trades` OK
+- [ ] endpoint `/api/dashboard/signals` OK
+- [ ] endpoint `/api/dashboard/risk` OK
+
+## 0.4 Nginx reverse proxy
+
+- [ ] nginx đã cài trên VPS
+- [ ] nginx service đang chạy
+- [ ] file config tồn tại:
+  - [ ] `/etc/nginx/conf.d/trading-dashboard.conf`
+- [ ] nginx proxy domain về `http://127.0.0.1:3000`
+- [ ] `nginx -t` pass
+- [ ] `systemctl reload nginx` hoặc `systemctl restart nginx` chạy OK
+
+## 0.5 Dashboard Basic Auth
+
+- [ ] đã cài `httpd-tools` hoặc package tương đương
+- [ ] đã tạo file:
+  - [ ] `/etc/nginx/.trading_dashboard_htpasswd`
+- [ ] đã tạo user dashboard, ví dụ `admin`
+- [ ] truy cập dashboard yêu cầu username/password
+- [ ] dashboard không public không auth
+
+## 0.6 Domain / DNS / SSL
+
+- [ ] domain hoặc subdomain đã trỏ đúng về VPS IP
+- [ ] domain resolve đúng
+- [ ] HTTP truy cập được
+- [ ] SSL HTTPS đã cài nếu dùng public domain
+- [ ] HTTP redirect sang HTTPS nếu đã bật SSL
+- [ ] không mở public port thừa ngoài 80/443/SSH
+
+---
+
 # 1. APP / ENV CHECK
 
 ## 1.1 App environment
@@ -42,8 +110,10 @@
 
 - [ ] `binance-bot-app` đang `Up`
 - [ ] `binance-bot-mysql` đang `Up (healthy)`
+- [ ] `binance-bot-dashboard` đang `Up`
 - [ ] app restart policy là `unless-stopped`
 - [ ] mysql restart policy là `unless-stopped`
+- [ ] dashboard restart policy là `unless-stopped`
 
 ## 2.2 Healthcheck
 
@@ -51,6 +121,7 @@
 - [ ] mysql healthcheck pass
 - [ ] `docker compose ps` không có service nào unhealthy
 - [ ] `docker logs` không có lỗi crash loop
+- [ ] `docker logs --tail 100 binance-bot-dashboard` không có lỗi build/runtime
 
 ## 2.3 Storage / logs
 
@@ -96,6 +167,8 @@
 - [ ] `/mode live` yêu cầu confirm đúng
 - [ ] `/confirm_live` chỉ hoạt động với user được phép
 - [ ] `/panic` đưa bot về `OFF` thành công
+- [ ] `/close_all` đóng tất cả lệnh live đang mở nếu có
+- [ ] `/panic_close_all` đóng tất cả lệnh live đang mở và đưa bot về `OFF`
 
 ---
 
@@ -202,15 +275,16 @@
 - [ ] future timestamp anomaly không làm bot khóa sai
 - [ ] duplicate live trade bị chặn
 - [ ] KILL_SWITCH block live execution
+- [ ] live spot chặn SHORT đúng
 
 ## 8.3 Order placement flow
 
 - [ ] normalize quantity hoạt động
 - [ ] min notional validation hoạt động
 - [ ] balance validation hoạt động
-- [ ] market order đặt thành công trên testnet
+- [ ] market order đặt thành công trên testnet hoặc micro-live nhỏ
 - [ ] save live trade thành công
-- [ ] post-order sync thành công
+- [ ] post-order sync thành công hoặc lỗi sync nhẹ được ignore đúng
 
 ## 8.4 Sync flow
 
@@ -220,15 +294,19 @@
 - [ ] executed qty update đúng
 - [ ] avg fill price update đúng
 - [ ] remaining qty update đúng
+- [ ] lỗi nhẹ như `Order does not exist` không làm bot panic sai
 
 ## 8.5 Close flow
 
 - [ ] `execute_live_close_market_order()` OK
-- [ ] close side đúng với LONG/SHORT
+- [ ] close side đúng với LONG spot: `SELL`
 - [ ] executed qty close đúng
 - [ ] result percent tính đúng
 - [ ] realized pnl tính đúng
 - [ ] status chuyển `OPEN -> CLOSED` đúng
+- [ ] `/live_close_test <trade_id>` hoạt động
+- [ ] `/close_all` hoạt động
+- [ ] `/panic_close_all` hoạt động
 
 ---
 
@@ -239,6 +317,7 @@
 - [ ] mainnet vẫn đang `LIVE_CONFIRM_REAL_ORDERS=false` trong dry-arm phase
 - [ ] chưa bật real orders khi chưa review checklist
 - [ ] `panic_stop()` test thành công
+- [ ] `/panic_close_all` test thành công nếu có lệnh mở nhỏ
 
 ## 9.2 Recommended extra protections
 
@@ -246,6 +325,8 @@
 - [ ] có limit exposure tổng nếu bạn đã bổ sung
 - [ ] có error-rate breaker nếu bạn đã bổ sung
 - [ ] có log rõ fail_reason cho mọi lệnh fail
+- [ ] rest client parse được Binance error rõ ràng, không chỉ báo `400 Bad Request`
+- [ ] sync noise error không ghi DB rác quá nhiều
 
 ---
 
@@ -279,6 +360,9 @@
 - [ ] SSH ổn định
 - [ ] đồng bộ thời gian hệ thống ổn định
 - [ ] không có service khác chiếm port nội bộ cần thiết
+- [ ] port `3000` chỉ bind nội bộ `127.0.0.1`
+- [ ] port `8000` chỉ bind nội bộ `127.0.0.1`
+- [ ] chỉ expose public qua nginx port `80/443`
 
 ---
 
@@ -298,6 +382,8 @@
 - [ ] live guard báo đúng lý do chưa armed
 - [ ] không có lệnh thật bị gửi đi
 - [ ] scanner / strategy / runtime summary vẫn chạy bình thường
+- [ ] dashboard vẫn truy cập được qua domain/auth
+- [ ] dashboard hiển thị đúng overview/risk/signals/live trades
 
 ---
 
@@ -319,6 +405,7 @@ Chỉ bắt đầu khi tất cả mục trên PASS.
 - [ ] theo dõi từng lệnh đầu tiên thủ công
 - [ ] kiểm tra Telegram alert cho từng event
 - [ ] kiểm tra DB từng trade
+- [ ] kiểm tra dashboard từng trade
 - [ ] kiểm tra PnL / close flow / fail_reason
 - [ ] không tăng size ngay sau 1-2 lệnh thắng
 
@@ -331,6 +418,8 @@ Chỉ bắt đầu khi tất cả mục trên PASS.
 - [ ] Không bỏ qua fail_reason trong log
 - [ ] Không sửa core TP1 / trailing / live lifecycle khi đang vận hành mainnet
 - [ ] Mọi thay đổi strategy phải test lại bằng testnet hoặc micro-live rất nhỏ
+- [ ] Không public dashboard khi chưa có Basic Auth hoặc access control
+- [ ] Không commit `.env`, API key, Telegram token lên Git
 
 ---
 
@@ -342,6 +431,7 @@ Chỉ bắt đầu khi tất cả mục trên PASS.
 - [ ] Dry-arm phase ổn định
 - [ ] Runtime / Telegram / DB / Binance đều ổn
 - [ ] Safety guards đều test pass
+- [ ] Dashboard + nginx + auth hoạt động đúng
 - [ ] Bạn đã sẵn sàng xử lý sự cố nếu lệnh đầu tiên có vấn đề
 
 ## NO-GO nếu còn một trong các lỗi sau:
@@ -351,7 +441,9 @@ Chỉ bắt đầu khi tất cả mục trên PASS.
 - [ ] live guard chưa rõ trạng thái
 - [ ] partial fill chưa quan sát được
 - [ ] sync trade chưa ổn định
-- [ ] container/app còn restart bất thường
+- [ ] container/app/dashboard còn restart bất thường
+- [ ] dashboard đang public không auth
+- [ ] nginx config chưa pass
 - [ ] chưa test panic stop
 
 ---

@@ -775,3 +775,159 @@ strategy/filter đang yếu
 👉 Production-ready paper trading + safe live trading system + testnet execution ready
 👉 Core engine đã hoàn chỉnh
 👉 Phase hiện tại = optimize strategy / reduce spam / improve winrate
+
+---
+
+# 🌐 WEB DASHBOARD + NGINX (NEW)
+
+## 🧩 Mục tiêu
+
+Ban đầu bot chỉ dùng:
+
+```text
+Telegram control
+
+Hiện tại đã nâng cấp:
+
+Telegram + Web Dashboard + Nginx Access Layer
+
+👉 giúp:
+
+theo dõi realtime
+debug dễ hơn
+quan sát live trade trực quan
+không phụ thuộc Telegram
+🖥️ Dashboard (Nuxt 3)
+Stack
+Nuxt 3 (Vue 3)
+TailwindCSS
+Docker container
+gọi API từ FastAPI backend
+📁 Structure
+dashboard/
+├── pages/
+│   ├── index.vue
+│   ├── live-trades.vue
+│   ├── signals.vue
+│   ├── risk.vue
+│   ├── logs.vue
+│   ├── settings.vue
+│   └── paper-trades.vue
+├── assets/css/main.css
+├── nuxt.config.ts
+├── package.json
+└── Dockerfile
+🐳 Docker Service
+dashboard:
+  build:
+    context: ./dashboard
+    dockerfile: Dockerfile
+  container_name: binance-bot-dashboard
+  restart: unless-stopped
+  environment:
+    TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    NUXT_PUBLIC_API_BASE: http://app:8000
+  ports:
+    - "127.0.0.1:3000:3000"
+  depends_on:
+    app:
+      condition: service_healthy
+
+👉 QUAN TRỌNG:
+
+❌ không expose 0.0.0.0:3000
+✅ chỉ dùng 127.0.0.1
+🔌 Dashboard API
+
+Frontend gọi:
+
+/api/dashboard/overview
+/api/dashboard/live-trades
+/api/dashboard/signals
+/api/dashboard/risk
+🌐 NGINX REVERSE PROXY
+📍 File config
+/etc/nginx/conf.d/trading-dashboard.conf
+⚙️ Config
+server {
+    listen 80;
+    server_name bot.yourdomain.com;
+
+    location / {
+        auth_basic "Restricted";
+        auth_basic_user_file /etc/nginx/.trading_dashboard_htpasswd;
+
+        proxy_pass http://127.0.0.1:3000;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+🔐 BASIC AUTH (BẮT BUỘC)
+Cài đặt
+yum install -y httpd-tools
+Tạo user
+htpasswd -c /etc/nginx/.trading_dashboard_htpasswd admin
+Truy cập
+http://bot.yourdomain.com
+
+👉 sẽ yêu cầu login
+
+🔒 SECURITY MODEL (UPDATED)
+Kiến trúc bảo mật
+Public
+  ↓
+Nginx (auth)
+  ↓
+Dashboard (127.0.0.1:3000)
+  ↓
+Backend (127.0.0.1:8000)
+Nguyên tắc
+❌ không expose backend
+❌ không expose dashboard
+❌ không expose MySQL
+✅ chỉ expose nginx
+⚠️ SECURITY RULES
+❌ không commit .env
+❌ không log API key
+❌ không share token
+❌ không public dashboard không auth
+✅ luôn bật Basic Auth
+✅ luôn dùng HTTPS (nếu có domain)
+🧪 DASHBOARD CHECK
+Test nội bộ
+curl http://127.0.0.1:3000
+Test domain
+http://bot.yourdomain.com
+🚨 TROUBLESHOOT DASHBOARD
+Không load
+check container dashboard
+check docker logs
+check API base
+Login fail
+check htpasswd
+tạo lại user
+Data rỗng
+backend chưa có data
+DB khác môi trường
+🚀 FUTURE UPGRADE
+login system riêng (JWT)
+control bot từ web
+panic button trên UI
+close all trades UI
+realtime websocket
+multi-user dashboard
+🎯 FINAL STATE (UPDATED)
+
+Hệ thống hiện tại:
+
+✔ Backend stable
+✔ Paper trading stable
+✔ Live engine verified
+✔ Testnet execution OK
+✔ Dashboard running
+✔ Nginx working
+✔ Domain ready
+✔ Basic auth enabled
+✔ Production-ready infra

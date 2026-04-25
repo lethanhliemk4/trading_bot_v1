@@ -680,3 +680,203 @@ tránh lặp lại các lỗi cũ
 🎯 FINAL STATUS
 
 👉 Production-ready paper trading + safe live system + testnet execution ready
+
+
+---
+
+# 🌐 DASHBOARD + NGINX LAYER (NEW)
+
+## 1. Dashboard (Nuxt 3)
+
+Dashboard dùng để:
+
+- theo dõi live trades
+- theo dõi signals
+- theo dõi risk
+- xem logs
+- quan sát runtime bot realtime
+
+### Cấu trúc
+
+```text
+dashboard/
+├── pages/
+│   ├── index.vue
+│   ├── live-trades.vue
+│   ├── signals.vue
+│   ├── risk.vue
+│   ├── logs.vue
+│   ├── settings.vue
+│   └── paper-trades.vue
+├── assets/css/main.css
+├── nuxt.config.ts
+├── package.json
+└── Dockerfile
+2. Docker Dashboard Service
+
+Trong docker-compose.yml:
+
+dashboard:
+  build:
+    context: ./dashboard
+    dockerfile: Dockerfile
+  container_name: binance-bot-dashboard
+  restart: unless-stopped
+  environment:
+    TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    NUXT_PUBLIC_API_BASE: http://app:8000
+  ports:
+    - "127.0.0.1:3000:3000"
+  depends_on:
+    app:
+      condition: service_healthy
+  networks:
+    - bot_net
+
+👉 QUAN TRỌNG:
+
+❌ KHÔNG dùng 0.0.0.0:3000
+✅ CHỈ dùng 127.0.0.1:3000
+3. Dashboard API Backend
+
+Các endpoint sử dụng:
+
+/api/dashboard/overview
+/api/dashboard/live-trades
+/api/dashboard/open-live-trades
+/api/dashboard/signals
+/api/dashboard/risk
+4. Nginx Reverse Proxy
+
+File:
+
+/etc/nginx/conf.d/trading-dashboard.conf
+
+Nội dung:
+
+server {
+    listen 80;
+    server_name bot.yourdomain.com;
+
+    location / {
+        auth_basic "Restricted";
+        auth_basic_user_file /etc/nginx/.trading_dashboard_htpasswd;
+
+        proxy_pass http://127.0.0.1:3000;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+5. Basic Auth (BẮT BUỘC)
+
+Cài:
+
+yum install -y httpd-tools
+
+Tạo user:
+
+htpasswd -c /etc/nginx/.trading_dashboard_htpasswd admin
+6. Domain Setup
+
+DNS:
+
+Type: A
+Name: bot
+Value: VPS_IP
+
+Truy cập:
+
+http://bot.yourdomain.com
+7. HTTPS (Khuyến nghị)
+yum install certbot python3-certbot-nginx -y
+certbot --nginx -d bot.yourdomain.com
+8. Security Layer (CRITICAL)
+❌ KHÔNG expose port 3000
+❌ KHÔNG expose port 8000
+❌ KHÔNG expose MySQL
+❌ KHÔNG public dashboard không auth
+✅ chỉ nginx expose 80/443
+✅ dashboard bắt buộc có password
+9. Dashboard Check
+
+Test nội bộ:
+
+curl http://127.0.0.1:3000
+
+Test domain:
+
+http://bot.yourdomain.com
+10. Dashboard Troubleshoot
+Không load
+check container dashboard
+check docker logs
+check API base URL
+Lỗi Nginx
+nginx -t
+systemctl restart nginx
+Login fail
+kiểm tra htpasswd
+tạo lại user
+🔐 PRODUCTION HARDENING (NEW)
+1. Network
+chỉ mở port:
+22 (SSH)
+80 (HTTP)
+443 (HTTPS)
+2. Docker
+restart policy: unless-stopped
+log rotation bật
+3. Secrets
+không commit .env
+không log API key
+rotate key nếu lộ
+4. Runtime Safety
+luôn bật:
+KILL_SWITCH
+LIVE GUARD
+DAILY LOSS LIMIT
+🚨 LIVE INCIDENT HANDLING (NEW)
+Khi bot lỗi
+docker logs -f binance-bot-app
+Khi muốn dừng khẩn cấp
+
+Telegram:
+
+/panic
+
+hoặc:
+
+/panic_close_all
+Restart bot
+docker compose restart
+📊 DASHBOARD OBSERVABILITY (NEW)
+
+Dashboard phải hiển thị đúng:
+
+free USDT
+open trades
+PnL
+signals
+risk
+
+Nếu sai:
+
+→ kiểm tra API backend
+
+🎯 FINAL PRODUCTION STATE (UPDATED)
+
+Hệ thống production hoàn chỉnh khi:
+
+✔ Backend stable
+✔ Paper trading stable
+✔ Live engine stable
+✔ Testnet verified
+✔ Dashboard running
+✔ Nginx working
+✔ Domain working
+✔ Auth enabled
+✔ Security hardened
+
+---

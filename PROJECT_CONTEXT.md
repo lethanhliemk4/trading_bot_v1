@@ -648,3 +648,201 @@ strategy/filter đang yếu
 👉 Production-ready paper trading + safe live system + testnet execution ready
 👉 Engine core đã hoàn chỉnh
 👉 Phase hiện tại = optimize strategy / reduce spam / improve winrate
+
+---
+
+# 🌐 DASHBOARD + NGINX CONTEXT (NEW)
+
+## 🧩 Lý do bổ sung
+
+Ban đầu system:
+
+```text
+Telegram only control
+
+Hiện tại đã nâng cấp:
+
+Telegram + Web Dashboard (Nuxt) + Nginx Access Layer
+
+👉 giúp:
+
+quan sát realtime
+debug dễ hơn
+không phụ thuộc hoàn toàn Telegram
+🖥️ DASHBOARD CONTEXT
+Stack
+Nuxt 3 (Vue 3)
+TailwindCSS
+chạy trong Docker
+gọi API từ FastAPI backend
+Dashboard container
+binance-bot-dashboard
+
+Bind:
+
+127.0.0.1:3000
+
+👉 KHÔNG expose public
+
+Dashboard API
+
+Frontend gọi:
+
+http://app:8000/api/dashboard/*
+Dashboard pages
+overview
+live trades
+signals
+risk
+logs
+settings
+paper trades
+Dashboard role
+
+👉 KHÔNG control bot (hiện tại)
+👉 CHỈ để:
+
+monitor
+debug
+quan sát
+🌐 NGINX CONTEXT (PRODUCTION ACCESS)
+Vai trò
+Public Internet
+    ↓
+Nginx (auth + reverse proxy)
+    ↓
+Dashboard (localhost:3000)
+Config location
+/etc/nginx/conf.d/trading-dashboard.conf
+Proxy flow
+https://bot.yourdomain.com
+→ nginx
+→ http://127.0.0.1:3000
+🔐 BASIC AUTH CONTEXT
+Mục tiêu
+
+👉 Không để dashboard public
+
+File
+/etc/nginx/.trading_dashboard_htpasswd
+Behavior
+truy cập domain → popup login
+chỉ user có password mới vào được
+🔒 SECURITY MODEL (UPDATED)
+Trước đây
+App only (localhost)
+Hiện tại
+App (127.0.0.1:8000)
+Dashboard (127.0.0.1:3000)
+↓
+Nginx (public)
+Nguyên tắc
+❌ không expose backend
+❌ không expose dashboard
+❌ không expose MySQL
+✅ chỉ expose nginx
+⚠️ SECURITY RISKS (UPDATED)
+
+Nếu sai config:
+
+lộ dashboard → lộ PnL / trade
+lộ API endpoint → có thể bị abuse
+lộ strategy → mất edge
+🧠 CURRENT SYSTEM EVOLUTION
+Giai đoạn 1
+Telegram bot only
+Giai đoạn 2
+Telegram + Live engine
+Giai đoạn 3 (hiện tại)
+Telegram + Live engine + Dashboard + Nginx
+🎯 DASHBOARD LIMITATION
+
+Hiện tại:
+
+chưa có auth riêng (chỉ basic auth nginx)
+chưa có write action
+chưa control bot từ UI
+
+👉 chỉ monitoring
+
+🚀 FUTURE DASHBOARD DIRECTION
+login system riêng (JWT)
+control bot từ UI
+panic button trên web
+close all trades
+live config UI
+realtime websocket
+multi user
+🧱 UPDATED INFRASTRUCTURE
+
+Hiện tại:
+
+VPS
+├── binance-bot-app
+├── binance-bot-mysql
+├── binance-bot-dashboard
+└── nginx
+🧠 IMPORTANT INSIGHT (UPDATED)
+
+Hiện tại system:
+
+Execution layer = STRONG
+Strategy layer = WEAK
+
+Dashboard giúp thấy rõ:
+
+signal spam
+risk reject nhiều
+winrate thấp
+
+👉 confirm vấn đề nằm ở strategy
+
+📊 OBSERVABILITY UPGRADE
+
+Trước:
+
+Logs + Telegram
+
+Hiện tại:
+
+Logs + Telegram + Dashboard
+🎯 CURRENT TRUE STATE
+
+System hiện tại:
+
+✔ Execution engine production-ready
+✔ Live engine verified
+✔ Infra stable
+✔ Dashboard working
+✔ Nginx working
+✔ Security basic OK
+
+❗ Strategy chưa tối ưu
+❗ Winrate chưa cao
+❗ Spam signal còn nhiều
+🚨 UPDATED PRIORITY
+
+Thứ tự ưu tiên hiện tại:
+
+Strategy optimization
+Signal filtering
+Reduce spam
+Improve winrate
+Dashboard nâng cấp (sau)
+Mainnet (sau cùng)
+🔥 FINAL CONTEXT
+
+👉 System của bạn hiện tại KHÔNG còn là:
+
+tool demo
+
+👉 mà là:
+
+production trading system (infra + execution ready)
+🧭 FINAL PHASE INTERPRETATION
+❌ Không còn là debug engine
+❌ Không còn là fix bug infra
+
+👉 Phase hiện tại:
+
+STRATEGY OPTIMIZATION
