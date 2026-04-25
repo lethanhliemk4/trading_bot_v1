@@ -133,3 +133,37 @@ def get_dashboard_signals(limit: int = 50) -> dict:
 
 def get_dashboard_risk() -> dict:
     return get_live_risk_summary()
+
+def get_dashboard_runtime() -> dict:
+    import time
+
+    import app.main as main_app
+
+    now = time.time()
+    threshold = float(main_app.LOOP_STALE_THRESHOLD_SECONDS)
+
+    def build_loop_status(last_seen: float) -> dict:
+        last_seen = float(last_seen or 0)
+
+        if last_seen <= 0:
+            return {
+                "last_seen": None,
+                "age_seconds": None,
+                "stale": True,
+            }
+
+        age = now - last_seen
+
+        return {
+            "last_seen": last_seen,
+            "age_seconds": round(age, 1),
+            "stale": age > threshold,
+        }
+
+    return {
+        "threshold_seconds": threshold,
+        "scanner_loop": build_loop_status(main_app.scanner_loop_last_seen),
+        "paper_trade_loop": build_loop_status(main_app.paper_trade_loop_last_seen),
+        "live_trade_loop": build_loop_status(main_app.live_trade_loop_last_seen),
+        "performance_loop": build_loop_status(main_app.performance_loop_last_seen),
+    }

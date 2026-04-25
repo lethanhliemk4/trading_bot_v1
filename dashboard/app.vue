@@ -8,18 +8,27 @@
         <NuxtLink to="/" class="block p-2 rounded hover:bg-slate-800">
           Overview
         </NuxtLink>
+
         <NuxtLink to="/live-trades" class="block p-2 rounded hover:bg-slate-800">
           Live Trades
         </NuxtLink>
+
         <NuxtLink to="/signals" class="block p-2 rounded hover:bg-slate-800">
           Signals
         </NuxtLink>
+
         <NuxtLink to="/risk" class="block p-2 rounded hover:bg-slate-800">
           Risk
         </NuxtLink>
+
+        <NuxtLink to="/runtime" class="block p-2 rounded hover:bg-slate-800">
+          Runtime
+        </NuxtLink>
+
         <NuxtLink to="/logs" class="block p-2 rounded hover:bg-slate-800">
           Logs
         </NuxtLink>
+
         <NuxtLink to="/settings" class="block p-2 rounded hover:bg-slate-800">
           Settings
         </NuxtLink>

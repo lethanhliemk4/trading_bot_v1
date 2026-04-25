@@ -1,75 +1,46 @@
 <template>
   <div>
-    <div class="flex items-center justify-between mb-6">
+    <div class="mb-6">
       <h1 class="text-2xl font-bold">Settings</h1>
-
-      <button
-        class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm"
-        @click="load"
-      >
-        Refresh
-      </button>
-    </div>
-
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h2 class="text-lg font-semibold mb-4">Bot Runtime</h2>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <div class="p-4 rounded-xl bg-slate-800">
-          <div class="text-slate-400">Trade Mode</div>
-          <div class="text-xl font-bold">
-            {{ overview?.bot?.trade_mode || "-" }}
-          </div>
-        </div>
-
-        <div class="p-4 rounded-xl bg-slate-800">
-          <div class="text-slate-400">Auto Trade</div>
-          <div class="text-xl font-bold">
-            {{ overview?.bot?.auto_trade_enabled ? "ON" : "OFF" }}
-          </div>
-        </div>
-
-        <div class="p-4 rounded-xl bg-slate-800">
-          <div class="text-slate-400">App Env</div>
-          <div class="text-xl font-bold">
-            {{ overview?.bot?.app_env || "-" }}
-          </div>
-        </div>
-
-        <div class="p-4 rounded-xl bg-slate-800">
-          <div class="text-slate-400">Kill Switch</div>
-          <div
-            class="text-xl font-bold"
-            :class="overview?.bot?.kill_switch ? 'text-red-400' : 'text-green-400'"
-          >
-            {{ overview?.bot?.kill_switch ? "ON" : "OFF" }}
-          </div>
-        </div>
-
-        <div class="p-4 rounded-xl bg-slate-800">
-          <div class="text-slate-400">Binance Env</div>
-          <div class="text-xl font-bold">
-            {{ overview?.account?.binance_use_testnet ? "TESTNET" : "MAINNET" }}
-          </div>
-        </div>
-
-        <div class="p-4 rounded-xl bg-slate-800">
-          <div class="text-slate-400">Live Armed</div>
-          <div
-            class="text-xl font-bold"
-            :class="overview?.account?.live_execution_armed ? 'text-green-400' : 'text-red-400'"
-          >
-            {{ overview?.account?.live_execution_armed ? "YES" : "NO" }}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-6 bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h2 class="text-lg font-semibold mb-2">Note</h2>
       <p class="text-sm text-slate-400">
-        Settings page hiện chỉ để xem trạng thái. Không chỉnh trực tiếp từ dashboard để tránh thao tác nhầm khi bot đang chạy live.
+        Xem trạng thái cấu hình LIVE hiện tại. Page này chỉ đọc, không thay đổi bot.
       </p>
+    </div>
+
+    <button
+      class="mb-6 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400"
+      @click="load"
+    >
+      Refresh
+    </button>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+        <h2 class="mb-4 text-lg font-semibold">Bot Config</h2>
+
+        <div class="grid gap-3">
+          <InfoRow label="Trade Mode" :value="overview?.bot?.trade_mode" />
+          <InfoRow label="Auto Trade" :value="boolText(overview?.bot?.auto_trade_enabled)" />
+          <InfoRow label="App Env" :value="overview?.bot?.app_env" />
+          <InfoRow label="Kill Switch" :value="boolText(overview?.bot?.kill_switch)" />
+          <InfoRow label="Live Enabled" :value="boolText(overview?.bot?.live_enabled)" />
+          <InfoRow label="Binance Testnet" :value="boolText(overview?.account?.binance_use_testnet)" />
+          <InfoRow label="Live Execution Armed" :value="boolText(overview?.account?.live_execution_armed)" />
+        </div>
+      </section>
+
+      <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+        <h2 class="mb-4 text-lg font-semibold">Live Risk Config</h2>
+
+        <div class="grid gap-3">
+          <InfoRow label="Free USDT" :value="formatNumber(overview?.account?.free_usdt)" />
+          <InfoRow label="Daily Loss Limit" :value="formatNumber(risk?.daily_loss_limit)" />
+          <InfoRow label="Max Open Trades" :value="risk?.max_open_trades ?? 0" />
+          <InfoRow label="Max Trades Per Day" :value="risk?.max_trades_per_day ?? 0" />
+          <InfoRow label="Max Notional Per Trade" :value="formatNumber(risk?.max_notional_per_trade)" />
+          <InfoRow label="Min Free USDT" :value="formatNumber(risk?.min_free_usdt)" />
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -78,13 +49,26 @@
 const { get } = useApi()
 
 const overview = ref<any>(null)
+const risk = ref<any>(null)
 
 const load = async () => {
-  overview.value = await get("/api/dashboard/overview")
+  const [overviewRes, riskRes] = await Promise.all([
+    get("/api/dashboard/overview"),
+    get("/api/dashboard/risk"),
+  ])
+
+  if (overviewRes) overview.value = overviewRes
+  if (riskRes) risk.value = riskRes
 }
 
-onMounted(() => {
-  load()
-  setInterval(load, 5000)
-})
+const boolText = (value: any) => {
+  return value ? "ON" : "OFF"
+}
+
+const formatNumber = (value: any, digits = 2) => {
+  const n = Number(value ?? 0)
+  return Number.isFinite(n) ? n.toFixed(digits) : "0.00"
+}
+
+onMounted(load)
 </script>

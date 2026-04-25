@@ -1,28 +1,34 @@
 export const useApi = () => {
   const config = useRuntimeConfig()
-  const base = config.public.apiBase
 
-  const get = async (path: string) => {
+  const baseURL =
+    config.public.apiBase ||
+    "http://127.0.0.1:8000"
+
+  const request = async (url: string, options: any = {}) => {
     try {
-      const res = await $fetch(`${base}${path}`)
+      const res = await $fetch(url, {
+        baseURL,
+        ...options,
+      })
+
       return res
     } catch (err: any) {
-      console.error("API GET ERROR:", err)
+      console.error("API ERROR:", err)
+
       return null
     }
   }
 
-  const post = async (path: string, body?: any) => {
-    try {
-      const res = await $fetch(`${base}${path}`, {
-        method: "POST",
-        body,
-      })
-      return res
-    } catch (err: any) {
-      console.error("API POST ERROR:", err)
-      return null
-    }
+  const get = (url: string) => {
+    return request(url, { method: "GET" })
+  }
+
+  const post = (url: string, body: any) => {
+    return request(url, {
+      method: "POST",
+      body,
+    })
   }
 
   return {

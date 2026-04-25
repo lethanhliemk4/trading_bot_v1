@@ -6,8 +6,8 @@ from app.services.dashboard_service import (
     get_dashboard_open_live_trades,
     get_dashboard_signals,
     get_dashboard_risk,
+    get_dashboard_runtime,
 )
-
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
 
@@ -34,3 +34,8 @@ def dashboard_signals(limit: int = Query(default=50, ge=1, le=200)):
 @router.get("/risk")
 def dashboard_risk():
     return get_dashboard_risk()
+
+
+@router.get("/runtime")
+def dashboard_runtime():
+    return get_dashboard_runtime()

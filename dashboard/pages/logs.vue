@@ -1,72 +1,36 @@
 <template>
   <div>
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Logs / Events</h1>
-
-      <button
-        class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm"
-        @click="load"
-      >
-        Refresh
-      </button>
+    <div class="mb-6">
+      <h1 class="text-2xl font-bold">Logs</h1>
+      <p class="text-sm text-slate-400">
+        Dashboard hiện chưa đọc trực tiếp log file. Dùng các lệnh dưới để xem log production.
+      </p>
     </div>
 
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
-      <h2 class="text-lg font-semibold mb-4">Recent Trade Events</h2>
+    <section class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h2 class="mb-4 text-lg font-semibold">App Logs</h2>
 
-      <div v-if="events.length" class="space-y-3">
-        <div
-          v-for="event in events"
-          :key="event.id"
-          class="p-4 rounded-xl bg-slate-800 border border-slate-700"
-        >
-          <div class="flex items-center justify-between">
-            <div class="font-semibold">
-              {{ event.symbol }} | {{ event.status }}
-            </div>
+      <pre class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-sm text-slate-300"><code>docker logs -f binance-bot-app</code></pre>
+    </section>
 
-            <div class="text-xs text-slate-400">
-              {{ event.created_at || "-" }}
-            </div>
-          </div>
+    <section class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h2 class="mb-4 text-lg font-semibold">MySQL Logs</h2>
 
-          <div class="mt-2 text-sm text-slate-300">
-            Side: {{ event.side }} |
-            Result: {{ formatNum(event.result_percent) }}% |
-            PnL: {{ formatNum(event.realized_pnl) }} USDT
-          </div>
+      <pre class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-sm text-slate-300"><code>docker logs -f binance-bot-mysql</code></pre>
+    </section>
 
-          <div class="mt-1 text-sm text-slate-400">
-            Reason:
-            {{ event.close_reason || event.fail_reason || "N/A" }}
-          </div>
-        </div>
-      </div>
+    <section class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+      <h2 class="mb-4 text-lg font-semibold">Compose Logs</h2>
 
-      <div v-else class="text-slate-400 text-center py-8">
-        No events yet
-      </div>
-    </div>
+      <pre class="overflow-x-auto rounded-xl bg-slate-950 p-4 text-sm text-slate-300"><code>cd /opt/trading_bot_v1
+docker compose logs -f app</code></pre>
+    </section>
+
+    <section class="mt-6 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-4">
+      <h2 class="mb-2 text-lg font-semibold text-yellow-300">Ghi chú</h2>
+      <p class="text-sm text-yellow-100">
+        Không nên expose raw logs qua public API nếu dashboard chưa có auth. Log có thể chứa lỗi, symbol, trạng thái lệnh hoặc thông tin nhạy cảm.
+      </p>
+    </section>
   </div>
 </template>
-
-<script setup lang="ts">
-const { get } = useApi()
-
-const events = ref<any[]>([])
-
-const load = async () => {
-  const data: any = await get("/api/dashboard/live-trades")
-  events.value = data?.items || []
-}
-
-const formatNum = (value: any) => {
-  const n = Number(value || 0)
-  return n.toFixed(4)
-}
-
-onMounted(() => {
-  load()
-  setInterval(load, 5000)
-})
-</script>
