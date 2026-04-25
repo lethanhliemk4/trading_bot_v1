@@ -42,6 +42,8 @@ services:
         max-file: "3"
 
   dashboard:
+    profiles:
+      - dashboard
     build:
       context: ./dashboard
       dockerfile: Dockerfile
