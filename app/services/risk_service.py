@@ -103,11 +103,15 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _start_of_today_utc() -> datetime:
+    now = _utcnow()
+    return datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+
 def get_today_live_realized_pnl() -> float:
     db = SessionLocal()
     try:
-        now = _utcnow()
-        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        start_of_day = _start_of_today_utc()
 
         trades = (
             db.query(LiveTrade)
@@ -127,8 +131,7 @@ def get_today_live_realized_pnl() -> float:
 def get_today_live_trade_count() -> int:
     db = SessionLocal()
     try:
-        now = _utcnow()
-        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        start_of_day = _start_of_today_utc()
 
         count = (
             db.query(LiveTrade)
@@ -210,6 +213,12 @@ def validate_live_risk_limits(
 
     if notional > settings.LIVE_MAX_NOTIONAL_PER_TRADE:
         return False, f"Live notional too high ({notional:.2f})"
+
+    if risk_amount > settings.LIVE_DAILY_LOSS_LIMIT_USDT:
+        return False, (
+            f"Live risk amount too high "
+            f"({risk_amount:.2f} > {settings.LIVE_DAILY_LOSS_LIMIT_USDT:.2f})"
+        )
 
     return True, None
 

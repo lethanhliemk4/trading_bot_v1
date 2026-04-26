@@ -47,6 +47,8 @@ from app.services.live_trade_service import (
     sync_open_live_trades,
     execute_live_close_market_order,
 )
+from app.services.profit_guard_service import validate_profit_guard
+from app.services.auto_stop_service import trigger_auto_stop
 
 settings = get_settings()
 configure_logging()
@@ -66,8 +68,6 @@ daily_loss_alert_sent = False
 live_daily_loss_alert_sent = False
 live_error_count = 0
 LIVE_MAX_CONSECUTIVE_ERRORS = 5
-live_last_trade_time = 0
-LIVE_TRADE_COOLDOWN_SECONDS = getattr(settings, "LIVE_TRADE_COOLDOWN_SECONDS", 60)
 HEARTBEAT_INTERVAL_SECONDS = getattr(settings, "HEARTBEAT_INTERVAL_SECONDS", 300)
 WATCHDOG_INTERVAL_SECONDS = getattr(settings, "WATCHDOG_INTERVAL_SECONDS", 60)
 LOOP_STALE_THRESHOLD_SECONDS = getattr(settings, "LOOP_STALE_THRESHOLD_SECONDS", 600)
@@ -326,7 +326,6 @@ def _get_symbol_whitelist() -> set[str]:
 async def scanner_loop():
     global telegram_app
     global last_alerts
-    global live_last_trade_time
     global scanner_loop_last_seen
     global scanner_stale_alert_sent
 
@@ -500,6 +499,16 @@ async def scanner_loop():
                                 )
                                 continue
 
+                        # 🚫 HARDENING: profit guard blocks trading after bad performance
+                        profit_ok, profit_reason = validate_profit_guard()
+                        if not profit_ok:
+                            logger.warning(
+                                "PROFIT GUARD BLOCK %s | reason=%s",
+                                coin["symbol"],
+                                profit_reason,
+                            )
+                            continue
+
                         if coin["symbol"].upper() in open_live_symbols:
                             logger.info(
                                 "Skip duplicate live trade for %s",
@@ -516,23 +525,13 @@ async def scanner_loop():
                             )
                             continue
 
-                        now_ts = time.time()
-                        elapsed = now_ts - live_last_trade_time
-
-                        if elapsed < 0:
+                        # 🚫 HARDENING: notional hard limit before order execution
+                        if coin["risk"]["notional"] > settings.LIVE_MAX_NOTIONAL_PER_TRADE:
                             logger.warning(
-                                "Cooldown anomaly detected (future timestamp) | resetting | last=%s now=%s",
-                                live_last_trade_time,
-                                now_ts,
-                            )
-                            live_last_trade_time = 0
-                            elapsed = now_ts
-
-                        if elapsed < LIVE_TRADE_COOLDOWN_SECONDS:
-                            logger.info(
-                                "LIVE COOLDOWN ACTIVE | skip %s | remaining=%.1fs",
+                                "Skip %s due to notional limit %.2f > %.2f",
                                 coin["symbol"],
-                                LIVE_TRADE_COOLDOWN_SECONDS - elapsed,
+                                coin["risk"]["notional"],
+                                settings.LIVE_MAX_NOTIONAL_PER_TRADE,
                             )
                             continue
 
@@ -547,6 +546,16 @@ async def scanner_loop():
                                     deviation,
                                 )
                                 continue
+
+                        # 🚫 HARDENING: auto stop system blocks trading after bad daily performance
+                        stopped, stop_reason = trigger_auto_stop()
+                        if stopped:
+                            logger.error(
+                                "AUTO STOP TRIGGERED %s | reason=%s",
+                                coin["symbol"],
+                                stop_reason,
+                            )
+                            continue
 
                         try:
                             logger.info("🚨 LIVE TRADE TRIGGER %s", coin["symbol"])
@@ -578,7 +587,6 @@ async def scanner_loop():
                                 )
                                 continue
 
-                            live_last_trade_time = time.time()
                             open_live_symbols.add(coin["symbol"].upper())
 
                             await send_message(
@@ -1480,7 +1488,6 @@ async def lifespan(app: FastAPI):
     global paper_trade_stale_alert_sent
     global live_trade_stale_alert_sent
     global performance_stale_alert_sent
-    global live_last_trade_time
 
     logger.info("Starting app | env=%s | mode=%s", settings.APP_ENV, settings.APP_MODE)
 
@@ -1497,7 +1504,6 @@ async def lifespan(app: FastAPI):
     paper_trade_loop_last_seen = now_ts
     live_trade_loop_last_seen = now_ts
     performance_loop_last_seen = now_ts
-    live_last_trade_time = 0
 
     scanner_stale_alert_sent = False
     paper_trade_stale_alert_sent = False

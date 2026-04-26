@@ -14,7 +14,10 @@ from app.market.rest_client import (
 )
 from app.db.session import SessionLocal
 from app.db.models import LiveTrade
-from app.services.risk_service import validate_live_risk_limits
+from app.services.risk_service import (
+    validate_live_risk_limits,
+    get_today_live_realized_pnl,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -72,8 +75,6 @@ def _should_retry_exception(exc: Exception) -> bool:
         "503",
         "504",
         "429",
-        "insufficient balance",
-        "account has insufficient balance",
     ]
 
     return any(keyword in text for keyword in retry_keywords)
@@ -127,6 +128,7 @@ async def _retry_async(
             last_error = e
 
             if attempt >= retries or not _should_retry_exception(e):
+                logger.error("CRITICAL: %s failed permanently: %s", operation_name, e)
                 raise
 
             logger.warning(
@@ -207,6 +209,47 @@ def _validate_runtime_live_guards() -> tuple[bool, str | None]:
             )
 
     return True, None
+
+
+def _validate_account_drawdown_guard() -> tuple[bool, str | None]:
+    pnl = get_today_live_realized_pnl()
+
+    if pnl <= -abs(settings.LIVE_DAILY_LOSS_LIMIT_USDT):
+        return False, f"Daily loss limit hit ({pnl:.2f})"
+
+    return True, None
+
+
+def _is_symbol_recently_traded(symbol: str) -> bool:
+    db = SessionLocal()
+    try:
+        last_trade = (
+            db.query(LiveTrade)
+            .filter(LiveTrade.symbol == _normalize_symbol(symbol))
+            .order_by(LiveTrade.created_at.desc())
+            .first()
+        )
+
+        if not last_trade or not last_trade.created_at:
+            return False
+
+        created_at = last_trade.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+
+        diff_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+
+        if diff_seconds < 0:
+            logger.warning(
+                "Symbol cooldown anomaly detected | symbol=%s | created_at=%s",
+                symbol,
+                created_at,
+            )
+            return False
+
+        return diff_seconds < settings.LIVE_TRADE_COOLDOWN_SECONDS
+    finally:
+        db.close()
 
 
 def is_live_execution_armed() -> tuple[bool, str | None]:
@@ -972,6 +1015,15 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
             "symbol": _normalize_symbol(strategy.get("symbol", "")),
         }
 
+    drawdown_ok, drawdown_reason = _validate_account_drawdown_guard()
+    if not drawdown_ok:
+        return {
+            "ok": False,
+            "stage": "account_guard",
+            "reason": drawdown_reason,
+            "symbol": _normalize_symbol(strategy.get("symbol", "")),
+        }
+
     valid, valid_reason = validate_live_inputs(strategy, risk)
     if not valid:
         return {
@@ -999,6 +1051,14 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
             "ok": False,
             "stage": "duplicate",
             "reason": f"Duplicate live trade blocked for {symbol}",
+            "symbol": symbol,
+        }
+
+    if _is_symbol_recently_traded(symbol):
+        return {
+            "ok": False,
+            "stage": "symbol_cooldown",
+            "reason": f"Symbol cooldown active for {symbol}",
             "symbol": symbol,
         }
 
@@ -1041,6 +1101,14 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
 
     qty = _safe_float(normalized.get("normalized_quantity"))
     qty_str = _format_order_quantity(qty)
+
+    if qty * entry > settings.LIVE_MAX_NOTIONAL_PER_TRADE:
+        return {
+            "ok": False,
+            "stage": "post_normalize_limit",
+            "reason": "Normalized quantity exceeds notional limit",
+            "symbol": symbol,
+        }
 
     if qty <= 0 or qty_str == "0":
         save_live_trade(
@@ -1092,6 +1160,14 @@ async def execute_live_market_order(strategy: dict, risk: dict) -> dict:
         }
 
     required_notional = _safe_float(notional_check.get("notional"), qty * entry)
+
+    if required_notional > settings.LIVE_MAX_NOTIONAL_PER_TRADE:
+        return {
+            "ok": False,
+            "stage": "hard_limit",
+            "reason": f"Notional exceeds limit ({required_notional:.2f})",
+            "symbol": symbol,
+        }
 
     live_risk_ok, live_risk_reason = validate_live_risk_limits(
         symbol=symbol,

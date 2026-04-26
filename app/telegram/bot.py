@@ -58,6 +58,10 @@ from app.services.live_trade_service import (
     get_live_account_snapshot,
     is_live_execution_armed,
 )
+from app.services.profit_guard_service import validate_profit_guard
+from app.services.performance_service import get_recent_performance
+from app.services.auto_stop_service import get_auto_stop_status
+
 
 settings = get_settings()
 
@@ -432,6 +436,195 @@ async def panic(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def pause(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    state = set_trade_mode("OFF")
+    PENDING_LIVE_CONFIRMATIONS.pop(user_id, None)
+
+    await update.message.reply_text(
+        "⏸ BOT PAUSED\n\n"
+        f"Mode: {state['trade_mode']}\n"
+        f"Auto trade: {'ON' if state['auto_trade_enabled'] else 'OFF'}\n\n"
+        "Scanner/monitor vẫn chạy, nhưng auto trade đã tắt."
+    )
+
+
+async def resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    if not context.args:
+        current = get_trade_mode()
+        await update.message.reply_text(
+            "Usage: /resume paper|live\n\n"
+            f"Current mode: {current['trade_mode']}\n"
+            f"Auto trade: {'ON' if current['auto_trade_enabled'] else 'OFF'}\n\n"
+            "Lưu ý: resume LIVE cần /confirm_live."
+        )
+        return
+
+    target = context.args[0].upper().strip()
+
+    if target == "LIVE":
+        set_live_confirmation(user_id)
+        await update.message.reply_text(
+            "⚠️ RESUME LIVE REQUESTED\n\n"
+            "Run within 2 minutes:\n/confirm_live"
+        )
+        return
+
+    if target != "PAPER":
+        await update.message.reply_text("❌ Usage: /resume paper|live")
+        return
+
+    state = set_trade_mode("PAPER")
+    await update.message.reply_text(
+        "▶️ BOT RESUMED\n\n"
+        f"Mode: {state['trade_mode']}\n"
+        f"Auto trade: {'ON' if state['auto_trade_enabled'] else 'OFF'}"
+    )
+
+
+async def pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    live_pnl = get_today_live_realized_pnl()
+    paper_pnl = get_today_realized_pnl()
+    risk = get_live_risk_summary()
+
+    await update.message.reply_text(
+        "💰 PNL SUMMARY\n\n"
+        f"LIVE Today: {live_pnl:+.2f} USDT\n"
+        f"PAPER Today: {paper_pnl:+.2f} USDT\n\n"
+        f"Live Daily Limit: -{abs(risk['daily_loss_limit_usdt']):.2f} USDT\n"
+        f"Live Limit Hit: {'YES' if risk['daily_loss_limit_hit'] else 'NO'}"
+    )
+
+
+async def runtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await runtime_status(update, context)
+
+
+async def safe_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    mode_state = get_trade_mode()
+    live_armed, live_reason = safe_get_live_execution_state()
+    risk = get_live_risk_summary()
+    open_live = get_open_live_trades()
+
+    await update.message.reply_text(
+        "🛡 SAFE STATUS\n\n"
+        f"Mode: {mode_state['trade_mode']}\n"
+        f"Auto Trade: {'ON' if mode_state['auto_trade_enabled'] else 'OFF'}\n"
+        f"KILL_SWITCH: {settings.KILL_SWITCH}\n"
+        f"LIVE Armed: {'YES' if live_armed else 'NO'}\n"
+        f"LIVE Reason: {live_reason or 'OK'}\n\n"
+        f"Open Live Trades: {len(open_live)} / {risk['max_open_trades']}\n"
+        f"Trades Today: {risk['today_trade_count']} / {risk['max_trades_per_day']}\n"
+        f"Today PnL: {risk['today_realized_pnl']:+.2f} USDT\n"
+        f"Daily Loss Hit: {'YES' if risk['daily_loss_limit_hit'] else 'NO'}\n"
+        f"Max Notional: {risk['max_notional_per_trade']:.2f} USDT"
+    )
+
+
+
+async def profit_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        enabled = getattr(settings, "ENABLE_PROFIT_GUARD", True)
+        ok, reason = validate_profit_guard()
+
+        await update.message.reply_text(
+            "🛡 PROFIT GUARD STATUS\n\n"
+            f"Enabled: {'YES' if enabled else 'NO'}\n"
+            f"State: {'OK' if ok else 'BLOCKED'}\n"
+            f"Reason: {reason or 'None'}\n\n"
+            "Profit Guard đang kiểm tra chuỗi thua và winrate gần đây."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ PROFIT GUARD ERROR: {e}")
+
+
+
+async def perf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        data = get_recent_performance(days=1)
+
+        await update.message.reply_text(
+            "📊 PERFORMANCE (24H)\n\n"
+            f"Trades: {data['total']}\n"
+            f"Wins: {data['wins']}\n"
+            f"Loses: {data['loses']}\n"
+            f"Winrate: {data['winrate']:.2f}\n\n"
+            f"PnL: {data['pnl']:+.2f} USDT"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ PERF ERROR: {e}")
+
+
+async def autostop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not is_allowed(user_id):
+        await update.message.reply_text("❌ Unauthorized")
+        return
+
+    try:
+        days = 1
+
+        if context.args:
+            try:
+                days = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text("❌ Usage: /autostop [days]")
+                return
+
+            if days <= 0 or days > 30:
+                await update.message.reply_text("❌ Days must be between 1 and 30")
+                return
+
+        data = get_auto_stop_status(days=days)
+        perf_data = data["performance"]
+
+        await update.message.reply_text(
+            f"🛑 AUTO STOP STATUS ({days}D)\n\n"
+            f"Enabled: {'YES' if data['enabled'] else 'NO'}\n"
+            f"Should Stop: {'YES' if data['should_stop'] else 'NO'}\n"
+            f"Reason: {data['reason'] or 'None'}\n\n"
+            f"PnL: {perf_data['pnl']:+.2f} USDT\n"
+            f"Winrate: {perf_data['winrate']:.2f}%\n"
+            f"Trades: {perf_data['total']}\n\n"
+            f"Max Daily Loss: {data['max_daily_loss']:+.2f} USDT\n"
+            f"Min Winrate: {data['min_winrate'] * 100:.2f}%\n"
+            f"Min Trades: {data['min_trades']}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ AUTOSTOP ERROR: {e}")
+
+
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_allowed(user_id):
@@ -491,8 +684,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help - Show all commands\n"
         "/balance - Show USDT balance\n"
         "/runtime_status - Show runtime guard settings\n"
-        "/strategy_stats - Show strategy reject statistics\n\n"
+        "/runtime - Alias for runtime status\n"
+        "/strategy_stats - Show strategy reject statistics\n"
+        "/pnl - Show live + paper PnL today\n"
+        "/safe_status - Show safety status summary\n"
+        "/profit_status - Show profit guard status\n"
+        "/perf - Show performance 24h\n\n"
         "/mode off|paper|live - Set trade mode\n"
+        "/pause - Pause auto trade safely\n"
+        "/resume paper|live - Resume bot mode safely\n"
         "/confirm_live - Confirm LIVE mode\n"
         "/panic - Turn auto trade off immediately\n"
         "/confirm <action> - Confirm dangerous action\n"
@@ -1200,6 +1400,16 @@ async def live_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Risk rejected")
         return
 
+    live_test_notional = float(result["risk"].get("notional", 0.0) or 0.0)
+
+    if live_test_notional > settings.LIVE_MAX_NOTIONAL_PER_TRADE:
+        await update.message.reply_text(
+            "❌ LIVE TEST BLOCKED\n\n"
+            f"Notional: {live_test_notional:.2f} USDT\n"
+            f"Limit: {settings.LIVE_MAX_NOTIONAL_PER_TRADE:.2f} USDT"
+        )
+        return
+
     res = await execute_live_market_order(
         result["strategy"],
         result["risk"],
@@ -1350,12 +1560,12 @@ async def live_pnl_today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        pnl = get_today_live_realized_pnl()
+        pnl_value = get_today_live_realized_pnl()
         risk = get_live_risk_summary()
 
         msg = (
             "📅 LIVE TODAY\n\n"
-            f"💰 PnL: {pnl:+.2f} USDT\n"
+            f"💰 PnL: {pnl_value:+.2f} USDT\n"
             f"🚫 Limit: -{abs(risk['daily_loss_limit_usdt']):.2f}\n\n"
         )
 
@@ -1756,6 +1966,14 @@ def create_bot():
     app.add_handler(CommandHandler("mode", mode))
     app.add_handler(CommandHandler("confirm_live", confirm_live))
     app.add_handler(CommandHandler("panic", panic))
+    app.add_handler(CommandHandler("pause", pause))
+    app.add_handler(CommandHandler("resume", resume))
+    app.add_handler(CommandHandler("pnl", pnl))
+    app.add_handler(CommandHandler("runtime", runtime))
+    app.add_handler(CommandHandler("safe_status", safe_status))
+    app.add_handler(CommandHandler("profit_status", profit_status))
+    app.add_handler(CommandHandler("perf", perf))
+    app.add_handler(CommandHandler("autostop", autostop))
     app.add_handler(CommandHandler("confirm", confirm))
     app.add_handler(CommandHandler("history", history))
     app.add_handler(CommandHandler("top", top))
