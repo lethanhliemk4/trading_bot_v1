@@ -106,3 +106,67 @@ def get_failed_live_trades():
 
     finally:
         db.close()
+
+def get_trading_summary():
+    db = SessionLocal()
+
+    try:
+        today_trades = db.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM live_trades
+                WHERE DATE(created_at) = CURDATE()
+            """)
+        ).scalar() or 0
+
+        failed_trades = db.execute(
+            text("""
+                SELECT COUNT(*)
+                FROM live_trades
+                WHERE DATE(created_at) = CURDATE()
+                  AND fail_reason IS NOT NULL
+            """)
+        ).scalar() or 0
+
+        today_pnl = db.execute(
+            text("""
+                SELECT COALESCE(SUM(realized_pnl), 0)
+                FROM live_trades
+                WHERE DATE(created_at) = CURDATE()
+            """)
+        ).scalar() or 0
+
+        avg_notional = db.execute(
+            text("""
+                SELECT COALESCE(AVG(notional), 0)
+                FROM live_trades
+                WHERE DATE(created_at) = CURDATE()
+            """)
+        ).scalar() or 0
+
+        most_common_fail_reason = db.execute(
+            text("""
+                SELECT fail_reason
+                FROM live_trades
+                WHERE fail_reason IS NOT NULL
+                GROUP BY fail_reason
+                ORDER BY COUNT(*) DESC
+                LIMIT 1
+            """)
+        ).scalar()
+
+        fail_rate = 0
+        if today_trades > 0:
+            fail_rate = round((failed_trades / today_trades) * 100, 2)
+
+        return {
+            "today_trades": today_trades,
+            "failed_trades": failed_trades,
+            "fail_rate": fail_rate,
+            "today_pnl": round(float(today_pnl), 4),
+            "avg_notional": round(float(avg_notional), 4),
+            "most_common_fail_reason": most_common_fail_reason,
+        }
+
+    finally:
+        db.close()

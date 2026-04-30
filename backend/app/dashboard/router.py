@@ -4,6 +4,7 @@ from app.dashboard.service import (
     get_overview,
     get_insights,
     get_failed_live_trades,
+    get_trading_summary,
 )
 
 
@@ -23,3 +24,8 @@ def insights():
 @router.get("/live-trades/errors")
 def failed_live_trades():
     return get_failed_live_trades()
+
+
+@router.get("/trading-summary")
+def trading_summary():
+    return get_trading_summary()
