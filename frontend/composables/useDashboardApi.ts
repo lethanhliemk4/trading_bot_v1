@@ -22,11 +22,16 @@ export const useDashboardApi = () => {
     return await $fetch(`${apiBase}/api/dashboard/trade-analytics`)
   }
 
+  const getRecentLiveTrades = async () => {
+  return await $fetch(`${apiBase}/api/dashboard/live-trades/recent`)
+}
+
   return {
     getOverview,
     getInsights,
     getFailedLiveTrades,
     getTradingSummary,
-    getTradeAnalytics
+    getTradeAnalytics,
+    getRecentLiveTrades
   }
 }

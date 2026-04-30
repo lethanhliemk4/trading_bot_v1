@@ -6,6 +6,7 @@ from app.dashboard.service import (
     get_failed_live_trades,
     get_trading_summary,
     get_trade_analytics,
+    get_recent_live_trades,
 )
 
 
@@ -35,3 +36,8 @@ def trading_summary():
 @router.get("/trade-analytics")
 def trade_analytics():
     return get_trade_analytics()
+
+
+@router.get("/live-trades/recent")
+def recent_live_trades():
+    return get_recent_live_trades()

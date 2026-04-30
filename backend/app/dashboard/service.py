@@ -201,3 +201,30 @@ def get_trade_analytics():
 
     finally:
         db.close()
+
+def get_recent_live_trades():
+    db = SessionLocal()
+
+    try:
+        rows = db.execute(
+            text("""
+                SELECT
+                    id,
+                    symbol,
+                    side,
+                    status,
+                    entry_price,
+                    notional,
+                    realized_pnl,
+                    close_reason,
+                    created_at
+                FROM live_trades
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+        ).mappings().all()
+
+        return [dict(row) for row in rows]
+
+    finally:
+        db.close()
