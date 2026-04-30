@@ -79,3 +79,30 @@ def get_insights():
 
     finally:
         db.close()
+
+def get_failed_live_trades():
+    db = SessionLocal()
+
+    try:
+        rows = db.execute(
+            text("""
+                SELECT
+                    id,
+                    symbol,
+                    side,
+                    status,
+                    entry_price,
+                    notional,
+                    fail_reason,
+                    created_at
+                FROM live_trades
+                WHERE fail_reason IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT 20
+            """)
+        ).mappings().all()
+
+        return [dict(row) for row in rows]
+
+    finally:
+        db.close()
