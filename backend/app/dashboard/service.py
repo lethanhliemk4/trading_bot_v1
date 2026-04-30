@@ -170,3 +170,34 @@ def get_trading_summary():
 
     finally:
         db.close()
+
+
+def get_trade_analytics():
+    db = SessionLocal()
+
+    try:
+        result = db.execute(text("""
+            SELECT 
+                symbol,
+                COUNT(*) AS total,
+                SUM(CASE WHEN fail_reason IS NOT NULL THEN 1 ELSE 0 END) AS failed,
+                ROUND(AVG(notional), 4) AS avg_notional
+            FROM live_trades
+            WHERE DATE(created_at) = CURDATE()
+            GROUP BY symbol
+            ORDER BY total DESC
+            LIMIT 10
+        """)).fetchall()
+
+        return [
+            {
+                "symbol": row[0],
+                "total": row[1],
+                "failed": row[2],
+                "avg_notional": float(row[3] or 0),
+            }
+            for row in result
+        ]
+
+    finally:
+        db.close()
