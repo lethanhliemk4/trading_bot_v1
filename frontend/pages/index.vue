@@ -30,6 +30,24 @@
 
         <section class="mt-8">
           <h2 class="mb-4 text-xl font-bold text-slate-900">
+            Trading Summary
+          </h2>
+
+          <div class="grid gap-4 md:grid-cols-3">
+            <StatCard label="Today Trades" :value="tradingSummary.today_trades" />
+            <StatCard label="Failed Trades" :value="tradingSummary.failed_trades" />
+            <StatCard label="Fail Rate" :value="`${tradingSummary.fail_rate}%`" />
+            <StatCard label="Today PnL" :value="tradingSummary.today_pnl" />
+            <StatCard label="Avg Notional" :value="tradingSummary.avg_notional" />
+            <StatCard
+              label="Top Fail Reason"
+              :value="tradingSummary.most_common_fail_reason || 'None'"
+            />
+          </div>
+        </section>
+
+        <section class="mt-8">
+          <h2 class="mb-4 text-xl font-bold text-slate-900">
             Insight Center
           </h2>
 
@@ -104,7 +122,12 @@
 </template>
 
 <script setup lang="ts">
-const { getOverview, getInsights, getFailedLiveTrades } = useDashboardApi()
+const {
+  getOverview,
+  getInsights,
+  getFailedLiveTrades,
+  getTradingSummary
+} = useDashboardApi()
 
 const pending = ref(true)
 const error = ref(false)
@@ -112,18 +135,21 @@ const error = ref(false)
 const overview = ref<any>({})
 const insights = ref<any[]>([])
 const failedTrades = ref<any[]>([])
+const tradingSummary = ref<any>({})
 
 onMounted(async () => {
   try {
-    const [overviewData, insightData, failedTradeData] = await Promise.all([
+    const [overviewData, insightData, failedTradeData, tradingSummaryData] = await Promise.all([
       getOverview(),
       getInsights(),
-      getFailedLiveTrades()
+      getFailedLiveTrades(),
+      getTradingSummary()
     ])
 
     overview.value = overviewData
     insights.value = insightData as any[]
     failedTrades.value = failedTradeData as any[]
+    tradingSummary.value = tradingSummaryData
   } catch (e) {
     error.value = true
   } finally {
