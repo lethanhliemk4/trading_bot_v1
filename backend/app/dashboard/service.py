@@ -1,5 +1,6 @@
 from sqlalchemy import text
 from app.db.session import SessionLocal
+from app.dashboard.insight_engine import generate_insights
 
 
 def get_overview():
@@ -30,10 +31,14 @@ def get_overview():
             text("SELECT trade_mode FROM bot_state ORDER BY id DESC LIMIT 1")
         ).scalar()
 
+        market_state = "VOLATILE" if signal_count > 20 else "ACTIVE" if signal_count > 5 else "QUIET"
+        risk_status = "HIGH" if open_trades >= 3 else "MEDIUM" if open_trades > 0 else "LOW"
+        strategy_status = "WEAK" if today_pnl < 0 else "GOOD" if today_pnl > 0 else "NEUTRAL"
+
         return {
-            "market_state": "VOLATILE" if signal_count > 20 else "ACTIVE" if signal_count > 5 else "QUIET",
-            "risk_status": "HIGH" if open_trades >= 3 else "MEDIUM" if open_trades > 0 else "LOW",
-            "strategy_status": "WEAK" if today_pnl < 0 else "GOOD" if today_pnl > 0 else "NEUTRAL",
+            "market_state": market_state,
+            "risk_status": risk_status,
+            "strategy_status": strategy_status,
             "open_trades": open_trades,
             "today_pnl": float(today_pnl),
             "recommendation": "REDUCE_RISK" if open_trades >= 3 else "NORMAL",
@@ -57,11 +62,20 @@ def get_overview():
 
 
 def get_insights():
-    return [
-        {
-            "level": "warning",
-            "title": "Database chưa kết nối",
-            "message": "Backend chưa đọc được DB thật. Kiểm tra DB_HOST, DB_PORT, DB_USER, DB_PASSWORD.",
-            "action": "CHECK_DB"
-        }
-    ]
+    db = SessionLocal()
+
+    try:
+        return generate_insights(db)
+
+    except Exception as e:
+        return [
+            {
+                "level": "danger",
+                "title": "Không đọc được database",
+                "message": str(e),
+                "action": "CHECK_DB"
+            }
+        ]
+
+    finally:
+        db.close()
