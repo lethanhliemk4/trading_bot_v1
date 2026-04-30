@@ -98,6 +98,71 @@
 
         <section class="mt-8">
           <h2 class="mb-4 text-xl font-bold text-slate-900">
+            Recent Live Trades
+          </h2>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600">
+                <tr>
+                  <th class="p-4">Symbol</th>
+                  <th class="p-4">Side</th>
+                  <th class="p-4">Status</th>
+                  <th class="p-4">Entry</th>
+                  <th class="p-4">Notional</th>
+                  <th class="p-4">PnL</th>
+                  <th class="p-4">Close Reason</th>
+                  <th class="p-4">Created</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr
+                  v-for="trade in recentTrades"
+                  :key="trade.id"
+                  class="border-t border-slate-100"
+                >
+                  <td class="p-4 font-semibold text-slate-900">
+                    {{ trade.symbol }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.side }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.status }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.entry_price }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.notional }}
+                  </td>
+                  <td
+                    class="p-4"
+                    :class="Number(trade.realized_pnl) < 0 ? 'text-red-600' : 'text-slate-700'"
+                  >
+                    {{ trade.realized_pnl }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.close_reason || '-' }}
+                  </td>
+                  <td class="p-4 text-slate-500">
+                    {{ trade.created_at }}
+                  </td>
+                </tr>
+
+                <tr v-if="recentTrades.length === 0">
+                  <td colspan="8" class="p-4 text-slate-500">
+                    Chưa có live trade gần đây.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="mt-8">
+          <h2 class="mb-4 text-xl font-bold text-slate-900">
             Insight Center
           </h2>
 
@@ -177,7 +242,8 @@ const {
   getInsights,
   getFailedLiveTrades,
   getTradingSummary,
-  getTradeAnalytics
+  getTradeAnalytics,
+  getRecentLiveTrades
 } = useDashboardApi()
 
 const pending = ref(true)
@@ -188,6 +254,7 @@ const insights = ref<any[]>([])
 const failedTrades = ref<any[]>([])
 const tradingSummary = ref<any>({})
 const tradeAnalytics = ref<any[]>([])
+const recentTrades = ref<any[]>([])
 
 onMounted(async () => {
   try {
@@ -196,13 +263,15 @@ onMounted(async () => {
       insightData,
       failedTradeData,
       tradingSummaryData,
-      tradeAnalyticsData
+      tradeAnalyticsData,
+      recentTradeData
     ] = await Promise.all([
       getOverview(),
       getInsights(),
       getFailedLiveTrades(),
       getTradingSummary(),
-      getTradeAnalytics()
+      getTradeAnalytics(),
+      getRecentLiveTrades()
     ])
 
     overview.value = overviewData
@@ -210,6 +279,7 @@ onMounted(async () => {
     failedTrades.value = failedTradeData as any[]
     tradingSummary.value = tradingSummaryData
     tradeAnalytics.value = tradeAnalyticsData as any[]
+    recentTrades.value = recentTradeData as any[]
   } catch (e) {
     error.value = true
   } finally {
