@@ -18,10 +18,15 @@ export const useDashboardApi = () => {
     return await $fetch(`${apiBase}/api/dashboard/trading-summary`)
   }
 
+  const getTradeAnalytics = async () => {
+    return await $fetch(`${apiBase}/api/dashboard/trade-analytics`)
+  }
+
   return {
     getOverview,
     getInsights,
     getFailedLiveTrades,
-    getTradingSummary
+    getTradingSummary,
+    getTradeAnalytics
   }
 }

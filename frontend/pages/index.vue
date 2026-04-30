@@ -48,6 +48,56 @@
 
         <section class="mt-8">
           <h2 class="mb-4 text-xl font-bold text-slate-900">
+            Trade Analytics
+          </h2>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600">
+                <tr>
+                  <th class="p-4">Symbol</th>
+                  <th class="p-4">Total Trades</th>
+                  <th class="p-4">Failed</th>
+                  <th class="p-4">Fail Rate</th>
+                  <th class="p-4">Avg Notional</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr
+                  v-for="item in tradeAnalytics"
+                  :key="item.symbol"
+                  class="border-t border-slate-100"
+                >
+                  <td class="p-4 font-semibold text-slate-900">
+                    {{ item.symbol }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ item.total }}
+                  </td>
+                  <td class="p-4 text-red-600">
+                    {{ item.failed }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0 }}%
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ item.avg_notional }}
+                  </td>
+                </tr>
+
+                <tr v-if="tradeAnalytics.length === 0">
+                  <td colspan="5" class="p-4 text-slate-500">
+                    Chưa có dữ liệu trade analytics.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="mt-8">
+          <h2 class="mb-4 text-xl font-bold text-slate-900">
             Insight Center
           </h2>
 
@@ -126,7 +176,8 @@ const {
   getOverview,
   getInsights,
   getFailedLiveTrades,
-  getTradingSummary
+  getTradingSummary,
+  getTradeAnalytics
 } = useDashboardApi()
 
 const pending = ref(true)
@@ -136,20 +187,29 @@ const overview = ref<any>({})
 const insights = ref<any[]>([])
 const failedTrades = ref<any[]>([])
 const tradingSummary = ref<any>({})
+const tradeAnalytics = ref<any[]>([])
 
 onMounted(async () => {
   try {
-    const [overviewData, insightData, failedTradeData, tradingSummaryData] = await Promise.all([
+    const [
+      overviewData,
+      insightData,
+      failedTradeData,
+      tradingSummaryData,
+      tradeAnalyticsData
+    ] = await Promise.all([
       getOverview(),
       getInsights(),
       getFailedLiveTrades(),
-      getTradingSummary()
+      getTradingSummary(),
+      getTradeAnalytics()
     ])
 
     overview.value = overviewData
     insights.value = insightData as any[]
     failedTrades.value = failedTradeData as any[]
     tradingSummary.value = tradingSummaryData
+    tradeAnalytics.value = tradeAnalyticsData as any[]
   } catch (e) {
     error.value = true
   } finally {
