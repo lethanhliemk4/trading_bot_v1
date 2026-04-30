@@ -15,7 +15,7 @@
       </div>
 
       <div v-else-if="error" class="rounded-xl bg-red-100 p-4 text-red-700">
-        Không gọi được backend. Kiểm tra FastAPI port 8001.
+        Không gọi được backend. Kiểm tra FastAPI/API Base.
       </div>
 
       <template v-else>
@@ -44,29 +44,86 @@
             />
           </div>
         </section>
+
+        <section class="mt-8">
+          <h2 class="mb-4 text-xl font-bold text-slate-900">
+            Failed Live Trades
+          </h2>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600">
+                <tr>
+                  <th class="p-4">Symbol</th>
+                  <th class="p-4">Side</th>
+                  <th class="p-4">Status</th>
+                  <th class="p-4">Notional</th>
+                  <th class="p-4">Reason</th>
+                  <th class="p-4">Created</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr
+                  v-for="trade in failedTrades"
+                  :key="trade.id"
+                  class="border-t border-slate-100"
+                >
+                  <td class="p-4 font-semibold text-slate-900">
+                    {{ trade.symbol }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.side }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.status }}
+                  </td>
+                  <td class="p-4 text-slate-700">
+                    {{ trade.notional }}
+                  </td>
+                  <td class="p-4 text-red-600">
+                    {{ trade.fail_reason }}
+                  </td>
+                  <td class="p-4 text-slate-500">
+                    {{ trade.created_at }}
+                  </td>
+                </tr>
+
+                <tr v-if="failedTrades.length === 0">
+                  <td colspan="6" class="p-4 text-slate-500">
+                    Không có live trade lỗi.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </template>
     </div>
   </main>
 </template>
 
 <script setup lang="ts">
-const { getOverview, getInsights } = useDashboardApi()
+const { getOverview, getInsights, getFailedLiveTrades } = useDashboardApi()
 
 const pending = ref(true)
 const error = ref(false)
 
 const overview = ref<any>({})
 const insights = ref<any[]>([])
+const failedTrades = ref<any[]>([])
 
 onMounted(async () => {
   try {
-    const [overviewData, insightData] = await Promise.all([
+    const [overviewData, insightData, failedTradeData] = await Promise.all([
       getOverview(),
-      getInsights()
+      getInsights(),
+      getFailedLiveTrades()
     ])
 
     overview.value = overviewData
     insights.value = insightData as any[]
+    failedTrades.value = failedTradeData as any[]
   } catch (e) {
     error.value = true
   } finally {
