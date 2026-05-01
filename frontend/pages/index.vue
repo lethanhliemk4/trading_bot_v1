@@ -186,137 +186,197 @@
         </section>
 
         <section class="mt-8">
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="text-xl font-bold text-white">
-              Trade Analytics
-            </h2>
-            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
-              Symbol performance
-            </span>
+          <div class="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 class="text-xl font-bold text-white">
+                Trade Analytics
+              </h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Filter theo ngày sẽ tính lại analytics từ recent live trades đã tải.
+              </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+                Symbol performance
+              </span>
+
+              <input
+                v-model="analyticsFilterFrom"
+                type="date"
+                class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+              />
+
+              <input
+                v-model="analyticsFilterTo"
+                type="date"
+                class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+              />
+
+              <button
+                type="button"
+                class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700"
+                @click="clearAnalyticsFilter"
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg">
-            <table class="w-full text-left text-sm">
-              <thead class="bg-slate-800 text-slate-300">
-                <tr>
-                  <th class="p-4">Symbol</th>
-                  <th class="p-4">Total Trades</th>
-                  <th class="p-4">Failed</th>
-                  <th class="p-4">Fail Rate</th>
-                  <th class="p-4">Avg Notional</th>
-                </tr>
-              </thead>
+            <div class="max-h-[420px] overflow-y-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="sticky top-0 z-10 bg-slate-800 text-slate-300">
+                  <tr>
+                    <th class="p-4">Symbol</th>
+                    <th class="p-4">Total Trades</th>
+                    <th class="p-4">Failed</th>
+                    <th class="p-4">Fail Rate</th>
+                    <th class="p-4">Avg Notional</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                <tr
-                  v-for="item in tradeAnalytics"
-                  :key="item.symbol"
-                  class="border-t border-slate-800 hover:bg-slate-800/70"
-                >
-                  <td class="p-4 font-semibold text-white">
-                    {{ item.symbol }}
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ item.total }}
-                  </td>
-                  <td class="p-4 font-semibold text-red-400">
-                    {{ item.failed }}
-                  </td>
-                  <td class="p-4">
-                    <span
-                      class="rounded-full px-2 py-1 text-xs font-semibold"
-                      :class="getFailRateBadgeClass(item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0)"
-                    >
-                      {{ item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0 }}%
-                    </span>
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ formatNumber(item.avg_notional, 4) }}
-                  </td>
-                </tr>
+                <tbody>
+                  <tr
+                    v-for="item in filteredTradeAnalytics"
+                    :key="item.symbol"
+                    class="border-t border-slate-800 hover:bg-slate-800/70"
+                  >
+                    <td class="p-4 font-semibold text-white">
+                      {{ item.symbol }}
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ item.total }}
+                    </td>
+                    <td class="p-4 font-semibold text-red-400">
+                      {{ item.failed }}
+                    </td>
+                    <td class="p-4">
+                      <span
+                        class="rounded-full px-2 py-1 text-xs font-semibold"
+                        :class="getFailRateBadgeClass(item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0)"
+                      >
+                        {{ item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0 }}%
+                      </span>
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ formatNumber(item.avg_notional, 4) }}
+                    </td>
+                  </tr>
 
-                <tr v-if="tradeAnalytics.length === 0">
-                  <td colspan="5" class="p-4 text-slate-400">
-                    Chưa có dữ liệu trade analytics.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  <tr v-if="filteredTradeAnalytics.length === 0">
+                    <td colspan="5" class="p-4 text-slate-400">
+                      Chưa có dữ liệu trade analytics trong khoảng ngày đã chọn.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
         <section class="mt-8">
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="text-xl font-bold text-white">
-              Recent Live Trades
-            </h2>
-            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
-              Read-only
-            </span>
+          <div class="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 class="text-xl font-bold text-white">
+                Recent Live Trades
+              </h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Hiển thị lệnh gần đây, chỉ đọc dữ liệu từ DB.
+              </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+                Read-only
+              </span>
+
+              <input
+                v-model="recentFilterFrom"
+                type="date"
+                class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+              />
+
+              <input
+                v-model="recentFilterTo"
+                type="date"
+                class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+              />
+
+              <button
+                type="button"
+                class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700"
+                @click="clearRecentFilter"
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg">
-            <table class="w-full text-left text-sm">
-              <thead class="bg-slate-800 text-slate-300">
-                <tr>
-                  <th class="p-4">Symbol</th>
-                  <th class="p-4">Side</th>
-                  <th class="p-4">Status</th>
-                  <th class="p-4">Entry</th>
-                  <th class="p-4">Notional</th>
-                  <th class="p-4">PnL</th>
-                  <th class="p-4">Close Reason</th>
-                  <th class="p-4">Created</th>
-                </tr>
-              </thead>
+            <div class="max-h-[420px] overflow-y-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="sticky top-0 z-10 bg-slate-800 text-slate-300">
+                  <tr>
+                    <th class="p-4">Symbol</th>
+                    <th class="p-4">Side</th>
+                    <th class="p-4">Status</th>
+                    <th class="p-4">Entry</th>
+                    <th class="p-4">Notional</th>
+                    <th class="p-4">PnL</th>
+                    <th class="p-4">Close Reason</th>
+                    <th class="p-4">Created</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                <tr
-                  v-for="trade in recentTrades"
-                  :key="trade.id"
-                  class="border-t border-slate-800 hover:bg-slate-800/70"
-                >
-                  <td class="p-4 font-semibold text-white">
-                    {{ trade.symbol }}
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ trade.side }}
-                  </td>
-                  <td class="p-4">
-                    <span
-                      class="rounded-full px-2 py-1 text-xs font-semibold"
-                      :class="getTradeStatusBadgeClass(trade.status)"
-                    >
-                      {{ trade.status }}
-                    </span>
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ trade.entry_price }}
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ formatNumber(trade.notional, 5) }}
-                  </td>
-                  <td
-                    class="p-4 font-semibold"
-                    :class="getPnlClass(trade.realized_pnl)"
+                <tbody>
+                  <tr
+                    v-for="trade in filteredRecentTrades"
+                    :key="trade.id"
+                    class="border-t border-slate-800 hover:bg-slate-800/70"
                   >
-                    {{ formatNumber(trade.realized_pnl, 5) }}
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ trade.close_reason || '-' }}
-                  </td>
-                  <td class="p-4 text-slate-400">
-                    {{ trade.created_at }}
-                  </td>
-                </tr>
+                    <td class="p-4 font-semibold text-white">
+                      {{ trade.symbol }}
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ trade.side }}
+                    </td>
+                    <td class="p-4">
+                      <span
+                        class="rounded-full px-2 py-1 text-xs font-semibold"
+                        :class="getTradeStatusBadgeClass(trade.status)"
+                      >
+                        {{ trade.status }}
+                      </span>
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ trade.entry_price }}
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ formatNumber(trade.notional, 5) }}
+                    </td>
+                    <td
+                      class="p-4 font-semibold"
+                      :class="getPnlClass(trade.realized_pnl)"
+                    >
+                      {{ formatNumber(trade.realized_pnl, 5) }}
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ trade.close_reason || '-' }}
+                    </td>
+                    <td class="p-4 text-slate-400">
+                      {{ trade.created_at }}
+                    </td>
+                  </tr>
 
-                <tr v-if="recentTrades.length === 0">
-                  <td colspan="8" class="p-4 text-slate-400">
-                    Chưa có live trade gần đây.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  <tr v-if="filteredRecentTrades.length === 0">
+                    <td colspan="8" class="p-4 text-slate-400">
+                      Chưa có live trade gần đây trong khoảng ngày đã chọn.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -361,66 +421,96 @@
         </section>
 
         <section class="mt-8">
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="text-xl font-bold text-white">
-              Failed Live Trades
-            </h2>
-            <span class="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs text-red-300">
-              Debug
-            </span>
+          <div class="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 class="text-xl font-bold text-white">
+                Failed Live Trades
+              </h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Danh sách lỗi để debug, chỉ đọc dữ liệu.
+              </p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs text-red-300">
+                Debug
+              </span>
+
+              <input
+                v-model="failedFilterFrom"
+                type="date"
+                class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+              />
+
+              <input
+                v-model="failedFilterTo"
+                type="date"
+                class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+              />
+
+              <button
+                type="button"
+                class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700"
+                @click="clearFailedFilter"
+              >
+                Clear
+              </button>
+            </div>
           </div>
 
           <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg">
-            <table class="w-full text-left text-sm">
-              <thead class="bg-slate-800 text-slate-300">
-                <tr>
-                  <th class="p-4">Symbol</th>
-                  <th class="p-4">Side</th>
-                  <th class="p-4">Status</th>
-                  <th class="p-4">Notional</th>
-                  <th class="p-4">Reason</th>
-                  <th class="p-4">Created</th>
-                </tr>
-              </thead>
+            <div class="max-h-[420px] overflow-y-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="sticky top-0 z-10 bg-slate-800 text-slate-300">
+                  <tr>
+                    <th class="p-4">Symbol</th>
+                    <th class="p-4">Side</th>
+                    <th class="p-4">Status</th>
+                    <th class="p-4">Notional</th>
+                    <th class="p-4">Reason</th>
+                    <th class="p-4">Created</th>
+                  </tr>
+                </thead>
 
-              <tbody>
-                <tr
-                  v-for="trade in failedTrades"
-                  :key="trade.id"
-                  class="border-t border-slate-800 hover:bg-slate-800/70"
-                >
-                  <td class="p-4 font-semibold text-white">
-                    {{ trade.symbol }}
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ trade.side }}
-                  </td>
-                  <td class="p-4">
-                    <span
-                      class="rounded-full px-2 py-1 text-xs font-semibold"
-                      :class="getTradeStatusBadgeClass(trade.status)"
-                    >
-                      {{ trade.status }}
-                    </span>
-                  </td>
-                  <td class="p-4 text-slate-300">
-                    {{ formatNumber(trade.notional, 5) }}
-                  </td>
-                  <td class="p-4 text-red-300">
-                    {{ trade.fail_reason }}
-                  </td>
-                  <td class="p-4 text-slate-400">
-                    {{ trade.created_at }}
-                  </td>
-                </tr>
+                <tbody>
+                  <tr
+                    v-for="trade in filteredFailedTrades"
+                    :key="trade.id"
+                    class="border-t border-slate-800 hover:bg-slate-800/70"
+                  >
+                    <td class="p-4 font-semibold text-white">
+                      {{ trade.symbol }}
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ trade.side }}
+                    </td>
+                    <td class="p-4">
+                      <span
+                        class="rounded-full px-2 py-1 text-xs font-semibold"
+                        :class="getTradeStatusBadgeClass(trade.status)"
+                      >
+                        {{ trade.status }}
+                      </span>
+                    </td>
+                    <td class="p-4 text-slate-300">
+                      {{ formatNumber(trade.notional, 5) }}
+                    </td>
+                    <td class="p-4 text-red-300">
+                      {{ trade.fail_reason }}
+                    </td>
+                    <td class="p-4 text-slate-400">
+                      {{ trade.created_at }}
+                    </td>
+                  </tr>
 
-                <tr v-if="failedTrades.length === 0">
-                  <td colspan="6" class="p-4 text-slate-400">
-                    Không có live trade lỗi.
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  <tr v-if="filteredFailedTrades.length === 0">
+                    <td colspan="6" class="p-4 text-slate-400">
+                      Không có live trade lỗi trong khoảng ngày đã chọn.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       </template>
@@ -448,6 +538,13 @@ const tradingSummary = ref<any>({})
 const tradeAnalytics = ref<any[]>([])
 const recentTrades = ref<any[]>([])
 
+const analyticsFilterFrom = ref('')
+const analyticsFilterTo = ref('')
+const recentFilterFrom = ref('')
+const recentFilterTo = ref('')
+const failedFilterFrom = ref('')
+const failedFilterTo = ref('')
+
 const formatNumber = (value: unknown, digits = 4) => {
   const numberValue = Number(value)
 
@@ -456,6 +553,95 @@ const formatNumber = (value: unknown, digits = 4) => {
   }
 
   return numberValue.toFixed(digits)
+}
+
+const isDateInRange = (dateValue: unknown, fromValue: string, toValue: string) => {
+  if (!fromValue && !toValue) {
+    return true
+  }
+
+  if (!dateValue) {
+    return false
+  }
+
+  const date = new Date(String(dateValue)).getTime()
+
+  if (Number.isNaN(date)) {
+    return false
+  }
+
+  const from = fromValue ? new Date(`${fromValue}T00:00:00`).getTime() : -Infinity
+  const to = toValue ? new Date(`${toValue}T23:59:59`).getTime() : Infinity
+
+  return date >= from && date <= to
+}
+
+const filteredRecentTrades = computed(() => {
+  return recentTrades.value.filter((trade) =>
+    isDateInRange(trade.created_at, recentFilterFrom.value, recentFilterTo.value)
+  )
+})
+
+const filteredFailedTrades = computed(() => {
+  return failedTrades.value.filter((trade) =>
+    isDateInRange(trade.created_at, failedFilterFrom.value, failedFilterTo.value)
+  )
+})
+
+const hasAnalyticsDateFilter = computed(() => {
+  return Boolean(analyticsFilterFrom.value || analyticsFilterTo.value)
+})
+
+const filteredTradeAnalytics = computed(() => {
+  if (!hasAnalyticsDateFilter.value) {
+    return tradeAnalytics.value
+  }
+
+  const grouped = new Map<string, { symbol: string; total: number; failed: number; notionalSum: number }>()
+
+  recentTrades.value
+    .filter((trade) => isDateInRange(trade.created_at, analyticsFilterFrom.value, analyticsFilterTo.value))
+    .forEach((trade) => {
+      const symbol = String(trade.symbol || 'UNKNOWN')
+      const current = grouped.get(symbol) || {
+        symbol,
+        total: 0,
+        failed: 0,
+        notionalSum: 0
+      }
+
+      current.total += 1
+
+      if (trade.status === 'FAILED') {
+        current.failed += 1
+      }
+
+      current.notionalSum += Number(trade.notional || 0)
+
+      grouped.set(symbol, current)
+    })
+
+  return Array.from(grouped.values()).map((item) => ({
+    symbol: item.symbol,
+    total: item.total,
+    failed: item.failed,
+    avg_notional: item.total > 0 ? item.notionalSum / item.total : 0
+  }))
+})
+
+const clearAnalyticsFilter = () => {
+  analyticsFilterFrom.value = ''
+  analyticsFilterTo.value = ''
+}
+
+const clearRecentFilter = () => {
+  recentFilterFrom.value = ''
+  recentFilterTo.value = ''
+}
+
+const clearFailedFilter = () => {
+  failedFilterFrom.value = ''
+  failedFilterTo.value = ''
 }
 
 const getPnlClass = (value: unknown) => {
