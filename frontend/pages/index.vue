@@ -1,59 +1,203 @@
 <template>
-  <main class="min-h-screen bg-slate-100 p-6">
-    <div class="mx-auto max-w-6xl">
-      <div class="mb-6">
-        <h1 class="text-3xl font-bold text-slate-900">
-          Binance Insight Dashboard
-        </h1>
-        <p class="mt-2 text-slate-600">
-          Trading Mission Control - Insight First
-        </p>
+  <main class="min-h-screen bg-slate-950 p-6 text-slate-100">
+    <div class="mx-auto max-w-7xl">
+      <div class="mb-8 overflow-hidden rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 p-6 shadow-2xl">
+        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div class="mb-3 flex flex-wrap items-center gap-3">
+              <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                LIVE MONITORING
+              </span>
+
+              <span
+                class="rounded-full px-3 py-1 text-xs font-semibold"
+                :class="getRiskBadgeClass(overview.risk_status)"
+              >
+                Risk: {{ overview.risk_status || 'UNKNOWN' }}
+              </span>
+
+              <span
+                class="rounded-full px-3 py-1 text-xs font-semibold"
+                :class="getStrategyBadgeClass(overview.strategy_status)"
+              >
+                Strategy: {{ overview.strategy_status || 'UNKNOWN' }}
+              </span>
+            </div>
+
+            <h1 class="text-3xl font-bold tracking-tight text-white md:text-4xl">
+              Binance Insight Dashboard
+            </h1>
+
+            <p class="mt-2 text-slate-400">
+              Trading Mission Control - Insight First
+            </p>
+          </div>
+
+          <div class="rounded-2xl border border-slate-700 bg-slate-950/60 p-4 text-right">
+            <p class="text-xs uppercase tracking-wide text-slate-500">
+              Today PnL
+            </p>
+            <p
+              class="mt-1 text-3xl font-black"
+              :class="getPnlClass(overview.today_pnl)"
+            >
+              {{ formatNumber(overview.today_pnl, 4) }}
+            </p>
+            <p class="mt-1 text-xs text-slate-500">
+              Read-only dashboard
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div v-if="pending" class="text-slate-600">
+      <div v-if="pending" class="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-slate-300">
         Loading dashboard...
       </div>
 
-      <div v-else-if="error" class="rounded-xl bg-red-100 p-4 text-red-700">
+      <div v-else-if="error" class="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-300">
         Không gọi được backend. Kiểm tra FastAPI/API Base.
       </div>
 
       <template v-else>
         <section class="grid gap-4 md:grid-cols-3">
-          <StatCard label="Market State" :value="overview.market_state" />
-          <StatCard label="Risk Status" :value="overview.risk_status" />
-          <StatCard label="Strategy Status" :value="overview.strategy_status" />
-          <StatCard label="Open Trades" :value="overview.open_trades" />
-          <StatCard label="Today PnL" :value="overview.today_pnl" />
-          <StatCard label="Recommendation" :value="overview.recommendation" />
-        </section>
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <p class="text-sm text-slate-400">
+              Market State
+            </p>
+            <p class="mt-3 text-2xl font-black text-white">
+              {{ overview.market_state }}
+            </p>
+          </div>
 
-        <section class="mt-8">
-          <h2 class="mb-4 text-xl font-bold text-slate-900">
-            Trading Summary
-          </h2>
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <p class="text-sm text-slate-400">
+              Risk Status
+            </p>
+            <p class="mt-3 text-2xl font-black" :class="getRiskTextClass(overview.risk_status)">
+              {{ overview.risk_status }}
+            </p>
+          </div>
 
-          <div class="grid gap-4 md:grid-cols-3">
-            <StatCard label="Today Trades" :value="tradingSummary.today_trades" />
-            <StatCard label="Failed Trades" :value="tradingSummary.failed_trades" />
-            <StatCard label="Fail Rate" :value="`${tradingSummary.fail_rate}%`" />
-            <StatCard label="Today PnL" :value="tradingSummary.today_pnl" />
-            <StatCard label="Avg Notional" :value="tradingSummary.avg_notional" />
-            <StatCard
-              label="Top Fail Reason"
-              :value="tradingSummary.most_common_fail_reason || 'None'"
-            />
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <p class="text-sm text-slate-400">
+              Strategy Status
+            </p>
+            <p class="mt-3 text-2xl font-black" :class="getStrategyTextClass(overview.strategy_status)">
+              {{ overview.strategy_status }}
+            </p>
+          </div>
+
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <p class="text-sm text-slate-400">
+              Open Trades
+            </p>
+            <p class="mt-3 text-2xl font-black text-white">
+              {{ overview.open_trades }}
+            </p>
+          </div>
+
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <p class="text-sm text-slate-400">
+              Today PnL
+            </p>
+            <p class="mt-3 text-2xl font-black" :class="getPnlClass(overview.today_pnl)">
+              {{ formatNumber(overview.today_pnl, 4) }}
+            </p>
+          </div>
+
+          <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+            <p class="text-sm text-slate-400">
+              Recommendation
+            </p>
+            <p class="mt-3 text-2xl font-black text-white">
+              {{ overview.recommendation }}
+            </p>
           </div>
         </section>
 
         <section class="mt-8">
-          <h2 class="mb-4 text-xl font-bold text-slate-900">
-            Trade Analytics
-          </h2>
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">
+              Trading Summary
+            </h2>
+            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+              Today
+            </span>
+          </div>
 
-          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="grid gap-4 md:grid-cols-3">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <p class="text-sm text-slate-400">
+                Today Trades
+              </p>
+              <p class="mt-3 text-2xl font-black text-white">
+                {{ tradingSummary.today_trades }}
+              </p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <p class="text-sm text-slate-400">
+                Failed Trades
+              </p>
+              <p class="mt-3 text-2xl font-black text-red-400">
+                {{ tradingSummary.failed_trades }}
+              </p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <p class="text-sm text-slate-400">
+                Fail Rate
+              </p>
+              <p
+                class="mt-3 text-2xl font-black"
+                :class="Number(tradingSummary.fail_rate) >= 70 ? 'text-red-400' : Number(tradingSummary.fail_rate) >= 30 ? 'text-amber-400' : 'text-emerald-400'"
+              >
+                {{ tradingSummary.fail_rate }}%
+              </p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <p class="text-sm text-slate-400">
+                Today PnL
+              </p>
+              <p class="mt-3 text-2xl font-black" :class="getPnlClass(tradingSummary.today_pnl)">
+                {{ formatNumber(tradingSummary.today_pnl, 4) }}
+              </p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <p class="text-sm text-slate-400">
+                Avg Notional
+              </p>
+              <p class="mt-3 text-2xl font-black text-white">
+                {{ formatNumber(tradingSummary.avg_notional, 4) }}
+              </p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-lg">
+              <p class="text-sm text-slate-400">
+                Top Fail Reason
+              </p>
+              <p class="mt-3 text-lg font-black leading-snug text-red-300">
+                {{ tradingSummary.most_common_fail_reason || 'None' }}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="mt-8">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">
+              Trade Analytics
+            </h2>
+            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+              Symbol performance
+            </span>
+          </div>
+
+          <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg">
             <table class="w-full text-left text-sm">
-              <thead class="bg-slate-50 text-slate-600">
+              <thead class="bg-slate-800 text-slate-300">
                 <tr>
                   <th class="p-4">Symbol</th>
                   <th class="p-4">Total Trades</th>
@@ -67,27 +211,32 @@
                 <tr
                   v-for="item in tradeAnalytics"
                   :key="item.symbol"
-                  class="border-t border-slate-100"
+                  class="border-t border-slate-800 hover:bg-slate-800/70"
                 >
-                  <td class="p-4 font-semibold text-slate-900">
+                  <td class="p-4 font-semibold text-white">
                     {{ item.symbol }}
                   </td>
-                  <td class="p-4 text-slate-700">
+                  <td class="p-4 text-slate-300">
                     {{ item.total }}
                   </td>
-                  <td class="p-4 text-red-600">
+                  <td class="p-4 font-semibold text-red-400">
                     {{ item.failed }}
                   </td>
-                  <td class="p-4 text-slate-700">
-                    {{ item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0 }}%
+                  <td class="p-4">
+                    <span
+                      class="rounded-full px-2 py-1 text-xs font-semibold"
+                      :class="getFailRateBadgeClass(item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0)"
+                    >
+                      {{ item.total > 0 ? Math.round((item.failed / item.total) * 100) : 0 }}%
+                    </span>
                   </td>
-                  <td class="p-4 text-slate-700">
-                    {{ item.avg_notional }}
+                  <td class="p-4 text-slate-300">
+                    {{ formatNumber(item.avg_notional, 4) }}
                   </td>
                 </tr>
 
                 <tr v-if="tradeAnalytics.length === 0">
-                  <td colspan="5" class="p-4 text-slate-500">
+                  <td colspan="5" class="p-4 text-slate-400">
                     Chưa có dữ liệu trade analytics.
                   </td>
                 </tr>
@@ -97,13 +246,18 @@
         </section>
 
         <section class="mt-8">
-          <h2 class="mb-4 text-xl font-bold text-slate-900">
-            Recent Live Trades
-          </h2>
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">
+              Recent Live Trades
+            </h2>
+            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+              Read-only
+            </span>
+          </div>
 
-          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg">
             <table class="w-full text-left text-sm">
-              <thead class="bg-slate-50 text-slate-600">
+              <thead class="bg-slate-800 text-slate-300">
                 <tr>
                   <th class="p-4">Symbol</th>
                   <th class="p-4">Side</th>
@@ -120,39 +274,44 @@
                 <tr
                   v-for="trade in recentTrades"
                   :key="trade.id"
-                  class="border-t border-slate-100"
+                  class="border-t border-slate-800 hover:bg-slate-800/70"
                 >
-                  <td class="p-4 font-semibold text-slate-900">
+                  <td class="p-4 font-semibold text-white">
                     {{ trade.symbol }}
                   </td>
-                  <td class="p-4 text-slate-700">
+                  <td class="p-4 text-slate-300">
                     {{ trade.side }}
                   </td>
-                  <td class="p-4 text-slate-700">
-                    {{ trade.status }}
+                  <td class="p-4">
+                    <span
+                      class="rounded-full px-2 py-1 text-xs font-semibold"
+                      :class="getTradeStatusBadgeClass(trade.status)"
+                    >
+                      {{ trade.status }}
+                    </span>
                   </td>
-                  <td class="p-4 text-slate-700">
+                  <td class="p-4 text-slate-300">
                     {{ trade.entry_price }}
                   </td>
-                  <td class="p-4 text-slate-700">
-                    {{ trade.notional }}
+                  <td class="p-4 text-slate-300">
+                    {{ formatNumber(trade.notional, 5) }}
                   </td>
                   <td
-                    class="p-4"
-                    :class="Number(trade.realized_pnl) < 0 ? 'text-red-600' : 'text-slate-700'"
+                    class="p-4 font-semibold"
+                    :class="getPnlClass(trade.realized_pnl)"
                   >
-                    {{ trade.realized_pnl }}
+                    {{ formatNumber(trade.realized_pnl, 5) }}
                   </td>
-                  <td class="p-4 text-slate-700">
+                  <td class="p-4 text-slate-300">
                     {{ trade.close_reason || '-' }}
                   </td>
-                  <td class="p-4 text-slate-500">
+                  <td class="p-4 text-slate-400">
                     {{ trade.created_at }}
                   </td>
                 </tr>
 
                 <tr v-if="recentTrades.length === 0">
-                  <td colspan="8" class="p-4 text-slate-500">
+                  <td colspan="8" class="p-4 text-slate-400">
                     Chưa có live trade gần đây.
                   </td>
                 </tr>
@@ -162,30 +321,58 @@
         </section>
 
         <section class="mt-8">
-          <h2 class="mb-4 text-xl font-bold text-slate-900">
-            Insight Center
-          </h2>
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">
+              Insight Center
+            </h2>
+            <span class="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-400">
+              Auto alerts
+            </span>
+          </div>
 
           <div class="grid gap-4 md:grid-cols-2">
-            <InsightCard
+            <div
               v-for="item in insights"
               :key="item.title"
-              :level="item.level"
-              :title="item.title"
-              :message="item.message"
-              :action="item.action"
-            />
+              class="rounded-2xl border p-5 shadow-lg"
+              :class="getInsightCardClass(item.level)"
+            >
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <h3 class="font-bold text-white">
+                  {{ item.title }}
+                </h3>
+                <span
+                  class="rounded-full px-2 py-1 text-xs font-semibold"
+                  :class="getInsightBadgeClass(item.level)"
+                >
+                  {{ item.level }}
+                </span>
+              </div>
+
+              <p class="text-sm leading-6 text-slate-300">
+                {{ item.message }}
+              </p>
+
+              <p class="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Action: {{ item.action }}
+              </p>
+            </div>
           </div>
         </section>
 
         <section class="mt-8">
-          <h2 class="mb-4 text-xl font-bold text-slate-900">
-            Failed Live Trades
-          </h2>
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">
+              Failed Live Trades
+            </h2>
+            <span class="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs text-red-300">
+              Debug
+            </span>
+          </div>
 
-          <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-lg">
             <table class="w-full text-left text-sm">
-              <thead class="bg-slate-50 text-slate-600">
+              <thead class="bg-slate-800 text-slate-300">
                 <tr>
                   <th class="p-4">Symbol</th>
                   <th class="p-4">Side</th>
@@ -200,30 +387,35 @@
                 <tr
                   v-for="trade in failedTrades"
                   :key="trade.id"
-                  class="border-t border-slate-100"
+                  class="border-t border-slate-800 hover:bg-slate-800/70"
                 >
-                  <td class="p-4 font-semibold text-slate-900">
+                  <td class="p-4 font-semibold text-white">
                     {{ trade.symbol }}
                   </td>
-                  <td class="p-4 text-slate-700">
+                  <td class="p-4 text-slate-300">
                     {{ trade.side }}
                   </td>
-                  <td class="p-4 text-slate-700">
-                    {{ trade.status }}
+                  <td class="p-4">
+                    <span
+                      class="rounded-full px-2 py-1 text-xs font-semibold"
+                      :class="getTradeStatusBadgeClass(trade.status)"
+                    >
+                      {{ trade.status }}
+                    </span>
                   </td>
-                  <td class="p-4 text-slate-700">
-                    {{ trade.notional }}
+                  <td class="p-4 text-slate-300">
+                    {{ formatNumber(trade.notional, 5) }}
                   </td>
-                  <td class="p-4 text-red-600">
+                  <td class="p-4 text-red-300">
                     {{ trade.fail_reason }}
                   </td>
-                  <td class="p-4 text-slate-500">
+                  <td class="p-4 text-slate-400">
                     {{ trade.created_at }}
                   </td>
                 </tr>
 
                 <tr v-if="failedTrades.length === 0">
-                  <td colspan="6" class="p-4 text-slate-500">
+                  <td colspan="6" class="p-4 text-slate-400">
                     Không có live trade lỗi.
                   </td>
                 </tr>
@@ -255,6 +447,138 @@ const failedTrades = ref<any[]>([])
 const tradingSummary = ref<any>({})
 const tradeAnalytics = ref<any[]>([])
 const recentTrades = ref<any[]>([])
+
+const formatNumber = (value: unknown, digits = 4) => {
+  const numberValue = Number(value)
+
+  if (Number.isNaN(numberValue)) {
+    return value ?? '-'
+  }
+
+  return numberValue.toFixed(digits)
+}
+
+const getPnlClass = (value: unknown) => {
+  const numberValue = Number(value)
+
+  if (numberValue > 0) {
+    return 'text-emerald-400'
+  }
+
+  if (numberValue < 0) {
+    return 'text-red-400'
+  }
+
+  return 'text-slate-300'
+}
+
+const getRiskTextClass = (value: unknown) => {
+  if (value === 'LOW') {
+    return 'text-emerald-400'
+  }
+
+  if (value === 'MEDIUM') {
+    return 'text-amber-400'
+  }
+
+  if (value === 'HIGH') {
+    return 'text-red-400'
+  }
+
+  return 'text-slate-300'
+}
+
+const getStrategyTextClass = (value: unknown) => {
+  if (value === 'GOOD') {
+    return 'text-emerald-400'
+  }
+
+  if (value === 'WEAK') {
+    return 'text-red-400'
+  }
+
+  return 'text-slate-300'
+}
+
+const getRiskBadgeClass = (value: unknown) => {
+  if (value === 'LOW') {
+    return 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+  }
+
+  if (value === 'MEDIUM') {
+    return 'border border-amber-500/30 bg-amber-500/10 text-amber-300'
+  }
+
+  if (value === 'HIGH') {
+    return 'border border-red-500/30 bg-red-500/10 text-red-300'
+  }
+
+  return 'border border-slate-700 bg-slate-900 text-slate-300'
+}
+
+const getStrategyBadgeClass = (value: unknown) => {
+  if (value === 'GOOD') {
+    return 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+  }
+
+  if (value === 'WEAK') {
+    return 'border border-red-500/30 bg-red-500/10 text-red-300'
+  }
+
+  return 'border border-slate-700 bg-slate-900 text-slate-300'
+}
+
+const getTradeStatusBadgeClass = (value: unknown) => {
+  if (value === 'CLOSED') {
+    return 'bg-emerald-500/10 text-emerald-300'
+  }
+
+  if (value === 'FAILED') {
+    return 'bg-red-500/10 text-red-300'
+  }
+
+  if (value === 'OPEN') {
+    return 'bg-amber-500/10 text-amber-300'
+  }
+
+  return 'bg-slate-700 text-slate-300'
+}
+
+const getFailRateBadgeClass = (value: number) => {
+  if (value >= 70) {
+    return 'bg-red-500/10 text-red-300'
+  }
+
+  if (value >= 30) {
+    return 'bg-amber-500/10 text-amber-300'
+  }
+
+  return 'bg-emerald-500/10 text-emerald-300'
+}
+
+const getInsightCardClass = (level: unknown) => {
+  if (level === 'danger') {
+    return 'border-red-500/30 bg-red-500/10'
+  }
+
+  if (level === 'warning') {
+    return 'border-amber-500/30 bg-amber-500/10'
+  }
+
+  return 'border-slate-800 bg-slate-900'
+}
+
+const getInsightBadgeClass = (level: unknown) => {
+  if (level === 'danger') {
+    return 'bg-red-500/20 text-red-300'
+  }
+
+  if (level === 'warning') {
+    return 'bg-amber-500/20 text-amber-300'
+  }
+
+  return 'bg-blue-500/20 text-blue-300'
+}
 
 onMounted(async () => {
   try {
