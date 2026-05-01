@@ -189,6 +189,125 @@
           <div class="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 class="text-xl font-bold text-white">
+                Winrate Analytics
+              </h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Biểu đồ tròn Win / Loss / Fail, tính từ recent live trades đã tải.
+              </p>
+            </div>
+
+            <select
+              v-model="winrateRange"
+              class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+            >
+              <option value="7d">7 ngày</option>
+              <option value="30d">Tháng</option>
+              <option value="90d">Quý</option>
+              <option value="365d">Năm</option>
+            </select>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-3">
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg lg:col-span-1">
+              <div class="mx-auto flex h-56 w-56 items-center justify-center rounded-full"
+                :style="{ background: winratePieBackground }"
+              >
+                <div class="flex h-32 w-32 flex-col items-center justify-center rounded-full border border-slate-800 bg-slate-950 text-center shadow-inner">
+                  <p class="text-xs uppercase tracking-wide text-slate-500">
+                    Winrate
+                  </p>
+                  <p class="mt-1 text-3xl font-black text-emerald-400">
+                    {{ winratePercent }}%
+                  </p>
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ winrateTotal }} trades
+                  </p>
+                </div>
+              </div>
+
+              <div class="mt-6 grid grid-cols-3 gap-3 text-center text-sm">
+                <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+                  <p class="text-xl font-black text-emerald-400">
+                    {{ winrateData.win }}
+                  </p>
+                  <p class="text-slate-400">
+                    Win
+                  </p>
+                </div>
+
+                <div class="rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+                  <p class="text-xl font-black text-red-400">
+                    {{ winrateData.loss }}
+                  </p>
+                  <p class="text-slate-400">
+                    Loss
+                  </p>
+                </div>
+
+                <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+                  <p class="text-xl font-black text-amber-400">
+                    {{ winrateData.fail }}
+                  </p>
+                  <p class="text-slate-400">
+                    Fail
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg lg:col-span-2">
+              <h3 class="text-lg font-bold text-white">
+                Winrate Breakdown
+              </h3>
+
+              <div class="mt-5 space-y-4">
+                <div>
+                  <div class="mb-2 flex justify-between text-sm">
+                    <span class="text-slate-300">Win</span>
+                    <span class="font-semibold text-emerald-400">{{ winrateBreakdown.win }}%</span>
+                  </div>
+                  <div class="h-3 overflow-hidden rounded-full bg-slate-800">
+                    <div class="h-full rounded-full bg-emerald-500" :style="{ width: `${winrateBreakdown.win}%` }"></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="mb-2 flex justify-between text-sm">
+                    <span class="text-slate-300">Loss</span>
+                    <span class="font-semibold text-red-400">{{ winrateBreakdown.loss }}%</span>
+                  </div>
+                  <div class="h-3 overflow-hidden rounded-full bg-slate-800">
+                    <div class="h-full rounded-full bg-red-500" :style="{ width: `${winrateBreakdown.loss}%` }"></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="mb-2 flex justify-between text-sm">
+                    <span class="text-slate-300">Fail</span>
+                    <span class="font-semibold text-amber-400">{{ winrateBreakdown.fail }}%</span>
+                  </div>
+                  <div class="h-3 overflow-hidden rounded-full bg-slate-800">
+                    <div class="h-full rounded-full bg-amber-500" :style="{ width: `${winrateBreakdown.fail}%` }"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-6 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">
+                Filter hiện tại:
+                <span class="font-semibold text-slate-200">
+                  {{ winrateRangeLabel }}
+                </span>
+                —
+                dữ liệu được tính read-only từ recent live trades.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="mt-8">
+          <div class="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 class="text-xl font-bold text-white">
                 Trade Analytics
               </h2>
               <p class="mt-1 text-sm text-slate-500">
@@ -544,6 +663,7 @@ const recentFilterFrom = ref('')
 const recentFilterTo = ref('')
 const failedFilterFrom = ref('')
 const failedFilterTo = ref('')
+const winrateRange = ref('7d')
 
 const formatNumber = (value: unknown, digits = 4) => {
   const numberValue = Number(value)
@@ -627,6 +747,126 @@ const filteredTradeAnalytics = computed(() => {
     failed: item.failed,
     avg_notional: item.total > 0 ? item.notionalSum / item.total : 0
   }))
+})
+
+const getWinrateStartTime = () => {
+  const now = Date.now()
+
+  switch (winrateRange.value) {
+    case '7d':
+      return now - 7 * 24 * 60 * 60 * 1000
+    case '30d':
+      return now - 30 * 24 * 60 * 60 * 1000
+    case '90d':
+      return now - 90 * 24 * 60 * 60 * 1000
+    case '365d':
+      return now - 365 * 24 * 60 * 60 * 1000
+    default:
+      return 0
+  }
+}
+
+const winrateRangeLabel = computed(() => {
+  switch (winrateRange.value) {
+    case '7d':
+      return '7 ngày gần nhất'
+    case '30d':
+      return 'Tháng gần nhất'
+    case '90d':
+      return 'Quý gần nhất'
+    case '365d':
+      return 'Năm gần nhất'
+    default:
+      return 'Tất cả'
+  }
+})
+
+const winrateFilteredTrades = computed(() => {
+  const start = getWinrateStartTime()
+
+  return recentTrades.value.filter((trade) => {
+    const createdAt = new Date(String(trade.created_at)).getTime()
+
+    if (Number.isNaN(createdAt)) {
+      return false
+    }
+
+    return createdAt >= start
+  })
+})
+
+const winrateData = computed(() => {
+  let win = 0
+  let loss = 0
+  let fail = 0
+
+  winrateFilteredTrades.value.forEach((trade) => {
+    const pnl = Number(trade.realized_pnl)
+
+    if (trade.status === 'FAILED') {
+      fail += 1
+      return
+    }
+
+    if (trade.status === 'CLOSED' && pnl > 0) {
+      win += 1
+      return
+    }
+
+    if (trade.status === 'CLOSED' && pnl < 0) {
+      loss += 1
+    }
+  })
+
+  return {
+    win,
+    loss,
+    fail
+  }
+})
+
+const winrateTotal = computed(() => {
+  return winrateData.value.win + winrateData.value.loss + winrateData.value.fail
+})
+
+const winratePercent = computed(() => {
+  if (winrateTotal.value === 0) {
+    return 0
+  }
+
+  return Math.round((winrateData.value.win / winrateTotal.value) * 100)
+})
+
+const winrateBreakdown = computed(() => {
+  if (winrateTotal.value === 0) {
+    return {
+      win: 0,
+      loss: 0,
+      fail: 0
+    }
+  }
+
+  return {
+    win: Math.round((winrateData.value.win / winrateTotal.value) * 100),
+    loss: Math.round((winrateData.value.loss / winrateTotal.value) * 100),
+    fail: Math.round((winrateData.value.fail / winrateTotal.value) * 100)
+  }
+})
+
+const winratePieBackground = computed(() => {
+  if (winrateTotal.value === 0) {
+    return 'conic-gradient(#334155 0deg 360deg)'
+  }
+
+  const winDeg = (winrateData.value.win / winrateTotal.value) * 360
+  const lossDeg = (winrateData.value.loss / winrateTotal.value) * 360
+  const failDeg = 360 - winDeg - lossDeg
+
+  const winEnd = winDeg
+  const lossEnd = winDeg + lossDeg
+  const failEnd = winDeg + lossDeg + failDeg
+
+  return `conic-gradient(#22c55e 0deg ${winEnd}deg, #ef4444 ${winEnd}deg ${lossEnd}deg, #f59e0b ${lossEnd}deg ${failEnd}deg)`
 })
 
 const clearAnalyticsFilter = () => {
