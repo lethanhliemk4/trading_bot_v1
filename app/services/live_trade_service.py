@@ -220,37 +220,86 @@ def _validate_account_drawdown_guard() -> tuple[bool, str | None]:
     return True, None
 
 
+def _get_symbol_cooldown_seconds_for_trade(trade: LiveTrade) -> int:
+    close_reason = str(trade.close_reason or "").upper().strip()
+    realized_pnl = _safe_float(trade.realized_pnl or 0.0)
+    result_percent = _safe_float(trade.result_percent or 0.0)
+
+    if close_reason in {"TP1", "TP2", "TAKE_PROFIT"}:
+        return int(settings.LIVE_SYMBOL_COOLDOWN_AFTER_TP_SECONDS)
+
+    if close_reason in {"SL", "TSL", "STOP_LOSS", "TRAILING_STOP"}:
+        return int(settings.LIVE_SYMBOL_COOLDOWN_AFTER_SL_SECONDS)
+
+    if realized_pnl > 0 or result_percent > 0:
+        return int(settings.LIVE_SYMBOL_COOLDOWN_AFTER_TP_SECONDS)
+
+    if realized_pnl < 0 or result_percent < 0:
+        return int(settings.LIVE_SYMBOL_COOLDOWN_AFTER_SL_SECONDS)
+
+    return int(settings.LIVE_SYMBOL_COOLDOWN_AFTER_OTHER_SECONDS)
+
+
 def _is_symbol_recently_traded(symbol: str) -> bool:
     db = SessionLocal()
     try:
+        normalized_symbol = _normalize_symbol(symbol)
+
         last_trade = (
             db.query(LiveTrade)
-            .filter(LiveTrade.symbol == _normalize_symbol(symbol))
+            .filter(
+                LiveTrade.symbol == normalized_symbol,
+                LiveTrade.status.in_(["OPEN", "CLOSED"]),
+            )
             .order_by(LiveTrade.created_at.desc())
             .first()
         )
 
-        if not last_trade or not last_trade.created_at:
+        if not last_trade:
             return False
 
-        created_at = last_trade.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
+        # OPEN trade should always block duplicate/re-entry for same symbol.
+        if last_trade.status == "OPEN":
+            logger.info(
+                "Symbol cooldown active because trade is still OPEN | symbol=%s",
+                normalized_symbol,
+            )
+            return True
 
-        diff_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+        reference_time = last_trade.closed_at or last_trade.created_at
+        if not reference_time:
+            return False
+
+        if reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+
+        diff_seconds = (datetime.now(timezone.utc) - reference_time).total_seconds()
 
         if diff_seconds < 0:
             logger.warning(
-                "Symbol cooldown anomaly detected | symbol=%s | created_at=%s",
-                symbol,
-                created_at,
+                "Symbol cooldown anomaly detected | symbol=%s | reference_time=%s",
+                normalized_symbol,
+                reference_time,
             )
             return False
 
-        return diff_seconds < settings.LIVE_TRADE_COOLDOWN_SECONDS
+        symbol_cooldown_seconds = _get_symbol_cooldown_seconds_for_trade(last_trade)
+
+        if diff_seconds < symbol_cooldown_seconds:
+            logger.info(
+                "Symbol cooldown active | symbol=%s | close_reason=%s | result_percent=%s | pnl=%s | age=%ss | cooldown=%ss",
+                normalized_symbol,
+                last_trade.close_reason,
+                last_trade.result_percent,
+                last_trade.realized_pnl,
+                int(diff_seconds),
+                symbol_cooldown_seconds,
+            )
+            return True
+
+        return False
     finally:
         db.close()
-
 
 def is_live_execution_armed() -> tuple[bool, str | None]:
     if settings.KILL_SWITCH:

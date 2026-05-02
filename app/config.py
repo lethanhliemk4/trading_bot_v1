@@ -105,6 +105,9 @@ class Settings(BaseSettings):
 
     # ===== Runtime protection config =====
     LIVE_TRADE_COOLDOWN_SECONDS: int = 60
+    LIVE_SYMBOL_COOLDOWN_AFTER_TP_SECONDS: int = 3600
+    LIVE_SYMBOL_COOLDOWN_AFTER_SL_SECONDS: int = 600
+    LIVE_SYMBOL_COOLDOWN_AFTER_OTHER_SECONDS: int = 1800
     HEARTBEAT_INTERVAL_SECONDS: int = 300
     WATCHDOG_INTERVAL_SECONDS: int = 60
     LOOP_STALE_THRESHOLD_SECONDS: int = 600
@@ -274,6 +277,16 @@ class Settings(BaseSettings):
 
         if self.LIVE_TRADE_COOLDOWN_SECONDS <= 0:
             raise ValueError("LIVE_TRADE_COOLDOWN_SECONDS must be greater than 0")
+
+        if self.LIVE_SYMBOL_COOLDOWN_AFTER_TP_SECONDS <= 0:
+            raise ValueError("LIVE_SYMBOL_COOLDOWN_AFTER_TP_SECONDS must be greater than 0")
+
+        if self.LIVE_SYMBOL_COOLDOWN_AFTER_SL_SECONDS <= 0:
+            raise ValueError("LIVE_SYMBOL_COOLDOWN_AFTER_SL_SECONDS must be greater than 0")
+
+        if self.LIVE_SYMBOL_COOLDOWN_AFTER_OTHER_SECONDS <= 0:
+            raise ValueError("LIVE_SYMBOL_COOLDOWN_AFTER_OTHER_SECONDS must be greater than 0")
+
 
         if self.HEARTBEAT_INTERVAL_SECONDS <= 0:
             raise ValueError("HEARTBEAT_INTERVAL_SECONDS must be greater than 0")
